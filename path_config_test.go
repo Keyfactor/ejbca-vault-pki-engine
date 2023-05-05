@@ -5,17 +5,7 @@ import (
 	"fmt"
 	"github.com/hashicorp/vault/sdk/logical"
 	"github.com/stretchr/testify/assert"
-	"os"
 	"testing"
-)
-
-var (
-	clientCertPath            = os.Getenv("EJBCA_CLIENT_CERT_PATH")
-	clientKeyPath             = os.Getenv("EJBCA_CLIENT_CERT_KEY_PATH")
-	hostname                  = os.Getenv("EJBCA_HOSTNAME")
-	_defaultCaName            = os.Getenv("EJBCA_DEFAULT_CA_NAME")
-	defaultEndEntityProfile   = os.Getenv("EJBCA_DEFAULT_END_ENTITY_PROFILE")
-	defaultCertificateProfile = os.Getenv("EJBCA_DEFAULT_CERTIFICATE_PROFILE")
 )
 
 func TestConfig(t *testing.T) {
@@ -23,8 +13,8 @@ func TestConfig(t *testing.T) {
 
 	t.Run("Test Configuration", func(t *testing.T) {
 		err := testConfigCreate(t, b, reqStorage, map[string]interface{}{
-			"client_cert":                 clientCertPath,
-			"client_key":                  clientKeyPath,
+			"client_cert":                 clientCert,
+			"client_key":                  clientKey,
 			"hostname":                    hostname,
 			"default_ca":                  _defaultCaName,
 			"default_end_entity_profile":  defaultEndEntityProfile,
@@ -34,8 +24,8 @@ func TestConfig(t *testing.T) {
 		assert.NoError(t, err)
 
 		err = testConfigRead(t, b, reqStorage, map[string]interface{}{
-			"client_cert":                 clientCertPath,
-			"client_key":                  clientKeyPath,
+			"client_cert":                 clientCert,
+			"client_key":                  clientKey,
 			"hostname":                    hostname,
 			"default_ca":                  _defaultCaName,
 			"default_end_entity_profile":  defaultEndEntityProfile,
@@ -45,8 +35,8 @@ func TestConfig(t *testing.T) {
 		assert.NoError(t, err)
 
 		err = testConfigUpdate(t, b, reqStorage, map[string]interface{}{
-			"client_cert":                 clientCertPath,
-			"client_key":                  clientKeyPath,
+			"client_cert":                 clientCert,
+			"client_key":                  clientKey,
 			"hostname":                    hostname,
 			"default_ca":                  _defaultCaName,
 			"default_end_entity_profile":  defaultEndEntityProfile,
@@ -56,8 +46,8 @@ func TestConfig(t *testing.T) {
 		assert.NoError(t, err)
 
 		err = testConfigRead(t, b, reqStorage, map[string]interface{}{
-			"client_cert":                 clientCertPath,
-			"client_key":                  clientKeyPath,
+			"client_cert":                 clientCert,
+			"client_key":                  clientKey,
 			"hostname":                    hostname,
 			"default_ca":                  _defaultCaName,
 			"default_end_entity_profile":  defaultEndEntityProfile,

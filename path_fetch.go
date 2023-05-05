@@ -258,6 +258,10 @@ func (b *ejbcaBackend) pathFetchCert(ctx context.Context, req *logical.Request, 
 		return logical.ErrorResponse("The serial number must be provided"), nil
 	}
 
+	if serial == "ca" || serial == "ca_chain" {
+		return b.pathFetchCA(ctx, req, data)
+	}
+
 	certEntry, err := sc.Cert().fetchCertBySerial(req.Path, serial)
 	if err != nil {
 		switch err.(type) {
@@ -266,6 +270,10 @@ func (b *ejbcaBackend) pathFetchCert(ctx context.Context, req *logical.Request, 
 		default:
 			return nil, err
 		}
+	}
+
+	if certEntry == nil || certEntry.Value == nil || len(certEntry.Value) == 0 {
+		return logical.ErrorResponse("No certificate found for serial " + serial), nil
 	}
 
 	block := pem.Block{
@@ -313,7 +321,7 @@ func (b *ejbcaBackend) pathFetchCert(ctx context.Context, req *logical.Request, 
 }
 
 func (b *ejbcaBackend) pathFetchCertRaw(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	response := &logical.Response{}
+	response := &logical.Response{Data: map[string]interface{}{}}
 	response.Data[logical.HTTPRawBody] = []byte{}
 	response.Data[logical.HTTPStatusCode] = http.StatusNoContent
 
@@ -324,9 +332,17 @@ func (b *ejbcaBackend) pathFetchCertRaw(ctx context.Context, req *logical.Reques
 		return response, nil
 	}
 
+	if serial == "ca" || serial == "ca_chain" {
+		return b.pathFetchCA(ctx, req, data)
+	}
+
 	certEntry, err := sc.Cert().fetchCertBySerial(req.Path, serial)
 	if err != nil {
 		return response, nil
+	}
+
+	if certEntry == nil || certEntry.Value == nil || len(certEntry.Value) == 0 {
+		return logical.ErrorResponse("No certificate found for serial " + serial), nil
 	}
 
 	var contentType string // If the request is /raw, we need to set the content type

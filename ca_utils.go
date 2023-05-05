@@ -95,7 +95,7 @@ func (c *caStorageContext) fetchCaBundle(caName string) (*certutil.CAInfoBundle,
 		}
 	}
 
-	if storageEntry.Value == nil || len(storageEntry.Value) == 0 {
+	if parsedStorageEntry.Certificate == "" {
 		return nil, errutil.InternalError{Err: fmt.Sprintf("returned CA certificate bytes were empty")}
 	}
 
@@ -198,7 +198,7 @@ func (b *caResponseBuilder) Config(sc *storageContext, path string) *caResponseB
 	b.encoder = responseConfig.encoder
 
 	// If path is not JSON response, initialize response object as failure
-	b.response = &logical.Response{}
+	b.response = &logical.Response{Data: map[string]interface{}{}}
 	if !b.isJsonResponse {
 		b.response.Data[logical.HTTPRawBody] = []byte{}
 		b.response.Data[logical.HTTPStatusCode] = http.StatusNoContent

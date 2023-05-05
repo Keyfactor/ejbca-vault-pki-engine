@@ -43,7 +43,7 @@ func backend() *ejbcaBackend {
 			},
 		},
 		Paths: framework.PathAppend(
-			pathRole(&b),
+			//pathRole(&b),
 			pathConfig(&b),
 			pathFetch(&b),
 		),
