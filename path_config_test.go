@@ -1,0 +1,162 @@
+package ejbca_vault_pki_engine
+
+import (
+	"context"
+	"fmt"
+	"github.com/hashicorp/vault/sdk/logical"
+	"github.com/stretchr/testify/assert"
+	"os"
+	"testing"
+)
+
+var (
+	clientCertPath            = os.Getenv("EJBCA_CLIENT_CERT_PATH")
+	clientKeyPath             = os.Getenv("EJBCA_CLIENT_CERT_KEY_PATH")
+	hostname                  = os.Getenv("EJBCA_HOSTNAME")
+	_defaultCaName            = os.Getenv("EJBCA_DEFAULT_CA_NAME")
+	defaultEndEntityProfile   = os.Getenv("EJBCA_DEFAULT_END_ENTITY_PROFILE")
+	defaultCertificateProfile = os.Getenv("EJBCA_DEFAULT_CERTIFICATE_PROFILE")
+)
+
+func TestConfig(t *testing.T) {
+	b, reqStorage := getTestBackend(t)
+
+	t.Run("Test Configuration", func(t *testing.T) {
+		err := testConfigCreate(t, b, reqStorage, map[string]interface{}{
+			"client_cert":                 clientCertPath,
+			"client_key":                  clientKeyPath,
+			"hostname":                    hostname,
+			"default_ca":                  _defaultCaName,
+			"default_end_entity_profile":  defaultEndEntityProfile,
+			"default_certificate_profile": defaultCertificateProfile,
+		})
+
+		assert.NoError(t, err)
+
+		err = testConfigRead(t, b, reqStorage, map[string]interface{}{
+			"client_cert":                 clientCertPath,
+			"client_key":                  clientKeyPath,
+			"hostname":                    hostname,
+			"default_ca":                  _defaultCaName,
+			"default_end_entity_profile":  defaultEndEntityProfile,
+			"default_certificate_profile": defaultCertificateProfile,
+		})
+
+		assert.NoError(t, err)
+
+		err = testConfigUpdate(t, b, reqStorage, map[string]interface{}{
+			"client_cert":                 clientCertPath,
+			"client_key":                  clientKeyPath,
+			"hostname":                    hostname,
+			"default_ca":                  _defaultCaName,
+			"default_end_entity_profile":  defaultEndEntityProfile,
+			"default_certificate_profile": defaultCertificateProfile,
+		})
+
+		assert.NoError(t, err)
+
+		err = testConfigRead(t, b, reqStorage, map[string]interface{}{
+			"client_cert":                 clientCertPath,
+			"client_key":                  clientKeyPath,
+			"hostname":                    hostname,
+			"default_ca":                  _defaultCaName,
+			"default_end_entity_profile":  defaultEndEntityProfile,
+			"default_certificate_profile": defaultCertificateProfile,
+		})
+
+		assert.NoError(t, err)
+
+		err = testConfigDelete(t, b, reqStorage)
+
+		assert.NoError(t, err)
+	})
+}
+
+func testConfigCreate(t *testing.T, b logical.Backend, s logical.Storage, d map[string]interface{}) error {
+	resp, err := b.HandleRequest(context.Background(), &logical.Request{
+		Operation: logical.CreateOperation,
+		Path:      configStoragePath,
+		Data:      d,
+		Storage:   s,
+	})
+
+	if err != nil {
+		return err
+	}
+
+	if resp != nil && resp.IsError() {
+		return resp.Error()
+	}
+	return nil
+}
+
+func testConfigDelete(t *testing.T, b logical.Backend, s logical.Storage) error {
+	resp, err := b.HandleRequest(context.Background(), &logical.Request{
+		Operation: logical.DeleteOperation,
+		Path:      configStoragePath,
+		Storage:   s,
+	})
+
+	if err != nil {
+		return err
+	}
+
+	if resp != nil && resp.IsError() {
+		return resp.Error()
+	}
+	return nil
+}
+
+func testConfigUpdate(t *testing.T, b logical.Backend, s logical.Storage, d map[string]interface{}) error {
+	resp, err := b.HandleRequest(context.Background(), &logical.Request{
+		Operation: logical.UpdateOperation,
+		Path:      configStoragePath,
+		Data:      d,
+		Storage:   s,
+	})
+
+	if err != nil {
+		return err
+	}
+
+	if resp != nil && resp.IsError() {
+		return resp.Error()
+	}
+	return nil
+}
+
+func testConfigRead(t *testing.T, b logical.Backend, s logical.Storage, expected map[string]interface{}) error {
+	resp, err := b.HandleRequest(context.Background(), &logical.Request{
+		Operation: logical.ReadOperation,
+		Path:      configStoragePath,
+		Storage:   s,
+	})
+
+	if err != nil {
+		return err
+	}
+
+	if resp == nil && expected == nil {
+		return nil
+	}
+
+	if resp.IsError() {
+		return resp.Error()
+	}
+
+	if len(expected) != len(resp.Data) {
+		return fmt.Errorf("read data mismatch (expected %d values, got %d)", len(expected), len(resp.Data))
+	}
+
+	for k, expectedV := range expected {
+		actualV, ok := resp.Data[k]
+
+		if !ok {
+			return fmt.Errorf(`expected data["%s"] = %v but was not included in read output"`, k, expectedV)
+		} else if expectedV != actualV {
+			return fmt.Errorf(`expected data["%s"] = %v, instead got %v"`, k, expectedV, actualV)
+		}
+	}
+
+	return nil
+}
