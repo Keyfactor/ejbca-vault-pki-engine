@@ -1,6 +1,6 @@
 module github.com/Keyfactor/ejbca-vault-pki-engine
 
-go 1.18
+go 1.19
 
 require (
 	github.com/Keyfactor/ejbca-go-client-sdk v0.1.4 // indirect
