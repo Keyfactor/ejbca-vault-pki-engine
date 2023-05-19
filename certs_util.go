@@ -153,6 +153,7 @@ func (b *issueSignResponseBuilder) signCsr(csr *x509.CertificateRequest) (*ejbca
 		Password: &endEntityPassword,
 	}
 
+	// Configure the request using local state and the CSR
 	enrollConfig.SetCertificateRequest(deserializeCsr(csr))
 	enrollConfig.SetCertificateAuthorityName(b.helper.getCaName())
 	enrollConfig.SetCertificateProfileName(b.helper.getCertificateProfileName())
@@ -160,11 +161,13 @@ func (b *issueSignResponseBuilder) signCsr(csr *x509.CertificateRequest) (*ejbca
 	enrollConfig.SetIncludeChain(b.helper.includeChain())
 	enrollConfig.SetAccountBindingId(b.helper.getAccountBindingId())
 
+	// Retrieve the EJBCA client from the storage context
 	client, err := b.storageContext.getClient()
 	if err != nil {
 		return nil, err
 	}
 
+	// Send the CSR to EJBCA to be signed
 	enrollResponse, _, err := client.V1CertificateApi.EnrollPkcs10Certificate(b.storageContext.Context).EnrollCertificateRestRequest(enrollConfig).Execute()
 	if err != nil {
 		return nil, client.createErrorFromEjbcaErr(b.storageContext.Backend, "error enrolling certificate with EJBCA. verify that the certificate profile name, end entity profile name, and certificate authority name are appropriate for the certificate request.", err)

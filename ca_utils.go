@@ -338,6 +338,7 @@ func getCaChain(ctx context.Context, client *ejbcaClient, issuerDn string) ([]*x
 		return nil, err
 	}
 
+	// Read all bytes from response body
 	encodedBytes, err := io.ReadAll(caResp.Body) // EJBCA returns CA chain as a single PEM file
 	if err != nil {
 		return nil, err
