@@ -14,7 +14,6 @@ const (
 )
 
 func TestRole(t *testing.T) {
-	t.Skip()
 	b, reqStorage := getTestBackend(t)
 
 	err := testConfigCreate(t, b, reqStorage, map[string]interface{}{

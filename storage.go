@@ -176,10 +176,13 @@ func (c *certStorageContext) fetchCertBundleBySerial(serial string) (*certutil.P
 	cert := &certutil.CertBundle{
 		PrivateKeyType: parsedStorageEntry.PrivateKeyType,
 		Certificate:    parsedStorageEntry.Certificate,
-		IssuingCA:      caCertBundle.CAChain[0],
 		CAChain:        caCertBundle.CAChain,
 		PrivateKey:     parsedStorageEntry.PrivateKey,
 		SerialNumber:   parsedStorageEntry.SerialNumber,
+	}
+
+	if len(caCertBundle.CAChain) > 0 {
+		cert.IssuingCA = caCertBundle.CAChain[0]
 	}
 
 	bundle, err := cert.ToParsedCertBundle()
@@ -212,8 +215,8 @@ func (c *certStorageContext) fetchRevokedCertBySerial(serial string) (*revokedCe
 	return &parsedStorageEntry, nil
 }
 
-func (c *certStorageContext) deleteCert(path string) error {
-	return c.storageContext.Storage.Delete(c.storageContext.Context, path)
+func (c *certStorageContext) deleteCert(serialNumber string) error {
+	return c.storageContext.Storage.Delete(c.storageContext.Context, "certs/"+normalizeSerial(serialNumber))
 }
 
 func (c *certStorageContext) listRevokedCerts() ([]string, error) {

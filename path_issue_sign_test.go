@@ -9,6 +9,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"github.com/hashicorp/vault/sdk/logical"
 	"github.com/stretchr/testify/assert"
@@ -38,21 +39,39 @@ func TestPathIssueSign(t *testing.T) {
 		"key_type":       "rsa",
 		"key_bits":       2048,
 		"signature_bits": 256,
-		"use_pss":        true,
-		"ou":             []string{"Engineering"},
-		"organization":   []string{"Example Co."},
-		"country":        []string{"US"},
-		"locality":       []string{"San Francisco"},
-		"province":       []string{"California"},
-		"street_address": []string{"123 Example St."},
-		"postal_code":    []string{"94101"},
+		"use_pss":        false,
 	}
 
 	err = testRoleCreate(t, b, reqStorage, issueSignRole)
 	assert.NoError(t, err)
 
-	t.Run("Test sign/:role_name", func(t *testing.T) {
+	t.Run("sign/:role_name", func(t *testing.T) {
 		err = testSign(b, reqStorage, fmt.Sprintf("sign/%s", testRoleName))
+		assert.NoError(t, err)
+	})
+
+	t.Run("issuer/:issuer_ref/sign/:role_name", func(t *testing.T) {
+		err = testSign(b, reqStorage, fmt.Sprintf("issuer/%s/sign/%s", _defaultCaName, testRoleName))
+		assert.NoError(t, err)
+	})
+
+	t.Run("sign-verbatim", func(t *testing.T) {
+		err = testSign(b, reqStorage, fmt.Sprintf("sign-verbatim"))
+		assert.NoError(t, err)
+	})
+
+	t.Run("sign-verbatim(/:role_name)", func(t *testing.T) {
+		err = testSign(b, reqStorage, fmt.Sprintf("sign-verbatim/%s", testRoleName))
+		assert.NoError(t, err)
+	})
+
+	t.Run("issue/:role_name", func(t *testing.T) {
+		err = testIssue(b, reqStorage, fmt.Sprintf("issue/%s", testRoleName))
+		assert.NoError(t, err)
+	})
+
+	t.Run("issuer/:issuer_ref/sign-verbatim(/:role_name)", func(t *testing.T) {
+		err = testIssue(b, reqStorage, fmt.Sprintf("issuer/%s/issue/%s", _defaultCaName, testRoleName))
 		assert.NoError(t, err)
 	})
 }
@@ -85,10 +104,15 @@ func testSign(b logical.Backend, s logical.Storage, path string) error {
 }
 
 func testIssue(b logical.Backend, s logical.Storage, path string) error {
+	cn := "EJBCAVaultTest_" + generateRandomString(16)
 	resp, err := b.HandleRequest(context.Background(), &logical.Request{
-		Operation: logical.ReadOperation,
+		Operation: logical.UpdateOperation,
 		Path:      path,
 		Storage:   s,
+		Data: map[string]interface{}{
+			"common_name": cn,
+			"alt_names":   "example.com",
+		},
 	})
 
 	if err != nil {
@@ -119,6 +143,15 @@ func generateCSR(subject string) (string, error) {
 	err = pem.Encode(&csrBuf, &pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrBytes})
 	if err != nil {
 		return "", err
+	}
+
+	csr, err := x509.ParseCertificateRequest(csrBytes)
+	if err != nil {
+		return "", err
+	}
+
+	if err = csr.CheckSignature(); err != nil {
+		return "", errors.New("failed signature validation for CSR")
 	}
 
 	return csrBuf.String(), nil

@@ -50,10 +50,8 @@ func revokeCert(sc *storageContext, serialNumber string) (*logical.Response, err
 
 	sc.Backend.Logger().Info("revoked certificate with serial number " + *execute.SerialNumber)
 
-	path := "certs/" + normalizeSerial(serialNumber)
-
 	//remove the certificate from vault.
-	err = sc.Cert().deleteCert(path)
+	err = sc.Cert().deleteCert(serialNumber)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +188,7 @@ func (i *issueSignHelper) Init(sc *storageContext, path string, data *framework.
 	i.path = path
 	i.data = data
 
-	i.privateKeyHelper = &privateKeyHelper{}
+	i.privateKeyHelper = &privateKeyHelper{isInit: false}
 }
 
 func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.CertificateRestResponse) (*logical.Response, error) {
@@ -237,8 +235,13 @@ func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.Cer
 		return nil, err
 	}
 
+	certPem, err := compileCertificatesToPemString([]*x509.Certificate{cert})
+	if err != nil {
+		return nil, err
+	}
+
 	certBundle := certutil.CertBundle{
-		Certificate:    enrollResponse.GetCertificate(),
+		Certificate:    certPem,
 		IssuingCA:      caBundle.Certificate,
 		CAChain:        caBundle.CAChain,
 		SerialNumber:   enrollResponse.GetSerialNumber(),
@@ -251,22 +254,13 @@ func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.Cer
 
 	switch i.getCertFormat() {
 	case "pem":
-		data["certificate"] = enrollResponse.GetCertificate()
+		data["certificate"] = certPem
 		data["issuing_ca"] = caBundle.Certificate
 		data["ca_chain"] = caBundle.CAChain
-
-		if !i.isCsrEnroll() {
-			data["private_key"] = i.privateKeyHelper.GetPrivateKeyPemString()
-			data["private_key_type"] = i.privateKeyHelper.GetPrivateKeyType()
-		}
 	case "pem_bundle":
 		data["certificate"] = certBundle.ToPEMBundle()
 		data["issuing_ca"] = caBundle.Certificate
 		data["ca_chain"] = caBundle.CAChain
-		if !i.isCsrEnroll() {
-			data["private_key"] = i.privateKeyHelper.GetPrivateKeyPemString()
-			data["private_key_type"] = i.privateKeyHelper.GetPrivateKeyType()
-		}
 	case "der":
 		var derChain []string
 
@@ -277,11 +271,6 @@ func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.Cer
 		data["certificate"] = base64.StdEncoding.EncodeToString(cert.Raw)
 		data["issuing_ca"] = base64.StdEncoding.EncodeToString(caParsedBundle.Certificate.Raw)
 		data["ca_chain"] = derChain
-
-		if !i.isCsrEnroll() {
-			data["private_key"] = i.privateKeyHelper.GetPrivateKeyDerString()
-			data["private_key_type"] = i.privateKeyHelper.GetPrivateKeyType()
-		}
 	}
 
 	// If we created the CSR, we need to return the private key
@@ -298,6 +287,8 @@ func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.Cer
 			} else {
 				data["private_key"] = i.privateKeyHelper.GetPKCS8PrivateKey(true)
 			}
+		case "pem_bundle":
+			data["private_key"] = i.privateKeyHelper.GetPrivateKeyPemString()
 		}
 	}
 
@@ -323,7 +314,7 @@ func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.Cer
 	if !i.role.NoStore {
 		// Store the certificate
 		entry := &certEntry{
-			Certificate:    certBundle.ToPEMBundle(),
+			Certificate:    certBundle.Certificate,
 			SerialNumber:   certBundle.SerialNumber,
 			PrivateKeyType: certBundle.PrivateKeyType,
 			PrivateKey:     certBundle.PrivateKey,
@@ -384,6 +375,8 @@ func (i *issueSignHelper) SetRole() error {
 		role.ExtKeyUsageOIDs = i.data.Get("ext_key_usage_oids").([]string)
 		role.SignatureBits = i.data.Get("signature_bits").(int)
 		role.UsePSS = i.data.Get("use_pss").(bool)
+
+		_, _ = role.validate(i.storageContext)
 	}
 
 	i.role = role
@@ -399,11 +392,11 @@ func (i *issueSignHelper) isSignVerbatim() bool {
 	// - sign-verbatim(/:role_name)
 	// - issuer/:issuer_ref/sign-verbatim(/:role_name)
 
-	return strings.HasPrefix(i.path, "sign-verbatim/") || (strings.HasPrefix(i.path, "issuer/") && strings.Contains(i.path, "/sign-verbatim/"))
+	return strings.HasPrefix(i.path, "sign-verbatim") || (strings.HasPrefix(i.path, "issuer/") && strings.Contains(i.path, "/sign-verbatim/"))
 }
 
 func (i *issueSignHelper) getCaName() string {
-	if strings.HasPrefix(i.path, "sign-verbatim/") || strings.HasPrefix(i.path, "sign/") || strings.HasPrefix(i.path, "issue/") {
+	if strings.HasPrefix(i.path, "sign-verbatim") || strings.HasPrefix(i.path, "sign/") || strings.HasPrefix(i.path, "issue/") {
 		return i.role.Issuer
 	}
 
@@ -489,7 +482,7 @@ func (i *issueSignHelper) includeChain() bool {
 func (i *issueSignHelper) getPrivateKeyFormat() string {
 	format, ok := i.data.GetOk("private_key_format")
 	if !ok {
-		return "der"
+		return i.getCertFormat()
 	}
 
 	return format.(string)
@@ -676,7 +669,7 @@ func (i *issueSignHelper) CreateCsr() (*x509.CertificateRequest, error) {
 	}
 
 	// Create the CSR. The private key is also generated here.
-	csr, err := certutil.CreateCSRWithRandomSource(creationBundle, true, rand.Reader)
+	csr, err := certutil.CreateCSRWithRandomSource(creationBundle, false, rand.Reader)
 	if err != nil {
 		return nil, err
 	}
