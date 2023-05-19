@@ -23,6 +23,26 @@ type caEntry struct {
 	SerialNumber string   `json:"serial_number"`
 }
 
+func (c *caStorageContext) resolveIssuerReference(caName string) error {
+	client, err := c.storageContext.getClient()
+	if err != nil {
+		return err
+	}
+	// Get a list of all CAs
+	caList, _, err := client.V1CaApi.ListCas(c.storageContext.Context).Execute()
+	if err != nil {
+		return err
+	}
+
+	for _, ca := range caList.GetCertificateAuthorities() {
+		if ca.GetName() == caName {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("CA %s not found", caName)
+}
+
 func (c *caStorageContext) putCaEntry(caName string, entry caEntry) error {
 	storageEntry, err := logical.StorageEntryJSON(issuerPath+caName, entry)
 	if err != nil {
@@ -46,8 +66,6 @@ func (c *caStorageContext) fetchCaBundle(caName string) (*certutil.CAInfoBundle,
 			return nil, errutil.InternalError{Err: fmt.Sprintf("unable to decode ca entry: %v", err)}
 		}
 	} else {
-		// TODO retrieve CA certificate from EJBCA if not found in vault
-
 		client, err := c.storageContext.getClient()
 		if err != nil {
 			return nil, err
@@ -167,16 +185,6 @@ type caResponseHelper struct {
 	includeChain    bool
 	encoder         func(*certutil.CAInfoBundle) []string
 }
-
-// Path            |      Content-Type                    | Encoding  | Format                | Whole chain?
-// --------------- | ------------------------------------ | --------- | --------------------- | ------------
-// ca	           | application/pkix-cert                | DER 	  | DER 				  | false
-// ca/pem          | application/pem-certificate-chain    | PEM 	  | PEM 				  | true
-// cert/ca         | <none> 							  | PEM 	  | JSON 				  | true
-// cert/ca/raw     | application/pkix-cert                | DER 	  | DER 				  | false
-// cert/ca/raw/pem | application/pem-certificate-chain    | PEM 	  | PEM 				  | true
-// ca_chain		   | application/pkix-cert                | PEM 	  | PEM 				  | true
-// cert/ca_chain   | <none>                               | PEM 	  | JSON 				  | true
 
 func (b *caResponseBuilder) Config(sc *storageContext, path string) *caResponseBuilder {
 	b.sc = sc

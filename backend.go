@@ -43,9 +43,12 @@ func backend() *ejbcaBackend {
 			},
 		},
 		Paths: framework.PathAppend(
-			//pathRole(&b),
+			pathRole(&b),
 			pathConfig(&b),
 			pathFetch(&b),
+			pathIssue(&b),
+			pathSign(&b),
+			pathRevoke(&b),
 		),
 		Secrets: []*framework.Secret{
 			secretCerts(&b),

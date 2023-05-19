@@ -3,7 +3,6 @@ package ejbca_vault_pki_engine
 import (
 	"context"
 	"encoding/pem"
-	"fmt"
 	"github.com/hashicorp/vault/sdk/framework"
 	"github.com/hashicorp/vault/sdk/helper/errutil"
 	"github.com/hashicorp/vault/sdk/logical"
@@ -44,6 +43,16 @@ var pathFetchReadSchema = map[int][]framework.Response{
 	}},
 }
 
+// Path            |      Content-Type                    | Encoding  | Format                | Whole chain?
+// --------------- | ------------------------------------ | --------- | --------------------- | ------------
+// ca	           | application/pkix-cert                | DER 	  | DER 				  | false
+// ca/pem          | application/pem-certificate-chain    | PEM 	  | PEM 				  | true
+// cert/ca         | <none> 							  | PEM 	  | JSON 				  | true
+// cert/ca/raw     | application/pkix-cert                | DER 	  | DER 				  | false
+// cert/ca/raw/pem | application/pem-certificate-chain    | PEM 	  | PEM 				  | true
+// ca_chain		   | application/pkix-cert                | PEM 	  | PEM 				  | true
+// cert/ca_chain   | <none>                               | PEM 	  | JSON 				  | true
+
 func pathFetch(b *ejbcaBackend) []*framework.Path {
 	return []*framework.Path{
 		{ // Fetch/List certs
@@ -62,6 +71,35 @@ func pathFetch(b *ejbcaBackend) []*framework.Path {
 
 			HelpSynopsis:    pathFetchHelpSyn,
 			HelpDescription: pathFetchHelpDesc,
+		},
+		{ // Fetch revoked certificates
+			Pattern: "certs/revoked/?$",
+
+			DisplayAttrs: &framework.DisplayAttributes{
+				OperationPrefix: operationPrefixPKI,
+				OperationSuffix: "revoked-certs",
+			},
+
+			Operations: map[logical.Operation]framework.OperationHandler{
+				logical.ListOperation: &framework.PathOperation{
+					Callback: b.pathFetchRevokedCertList,
+					Responses: map[int][]framework.Response{
+						http.StatusOK: {{
+							Description: "OK",
+							Fields: map[string]*framework.FieldSchema{
+								"keys": {
+									Type:        framework.TypeStringSlice,
+									Description: `List of Keys`,
+									Required:    false,
+								},
+							},
+						}},
+					},
+				},
+			},
+
+			HelpSynopsis:    pathListRevokedHelpSyn,
+			HelpDescription: pathListRevokedHelpDesc,
 		},
 		{ // Fetch a cert by serial
 			Pattern: "cert/(?P<serial>[0-9A-Fa-f-:]+)",
@@ -250,6 +288,22 @@ func (b *ejbcaBackend) pathFetchCertList(ctx context.Context, req *logical.Reque
 	return logical.ListResponse(entries), nil
 }
 
+func (b *ejbcaBackend) pathFetchRevokedCertList(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	sc := b.makeStorageContext(ctx, req.Storage)
+
+	revokedCerts, err := sc.Cert().listRevokedCerts()
+	if err != nil {
+		return nil, err
+	}
+
+	// Normalize serial back to a format people are expecting.
+	for i, serial := range revokedCerts {
+		revokedCerts[i] = denormalizeSerial(serial)
+	}
+
+	return logical.ListResponse(revokedCerts), nil
+}
+
 func (b *ejbcaBackend) pathFetchCert(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	sc := b.makeStorageContext(ctx, req.Storage)
 
@@ -262,7 +316,7 @@ func (b *ejbcaBackend) pathFetchCert(ctx context.Context, req *logical.Request, 
 		return b.pathFetchCA(ctx, req, data)
 	}
 
-	certEntry, err := sc.Cert().fetchCertBySerial(req.Path, serial)
+	entry, err := sc.Cert().fetchCertBundleBySerial(serial)
 	if err != nil {
 		switch err.(type) {
 		case errutil.UserError:
@@ -272,18 +326,8 @@ func (b *ejbcaBackend) pathFetchCert(ctx context.Context, req *logical.Request, 
 		}
 	}
 
-	if certEntry == nil || certEntry.Value == nil || len(certEntry.Value) == 0 {
-		return logical.ErrorResponse("No certificate found for serial " + serial), nil
-	}
-
-	block := pem.Block{
-		Type:  "CERTIFICATE",
-		Bytes: certEntry.Value,
-	}
-	certificate := strings.TrimSpace(string(pem.EncodeToMemory(&block)))
-
 	// Get revocation details if applicable
-	revokedEntry, err := sc.Cert().fetchCertBySerial("revoked/", serial)
+	revokedEntry, err := sc.Cert().fetchRevokedCertBySerial(serial)
 	if err != nil {
 		switch err.(type) {
 		case errutil.UserError:
@@ -297,15 +341,10 @@ func (b *ejbcaBackend) pathFetchCert(ctx context.Context, req *logical.Request, 
 	var revocationTime int64
 	var revocationTimeRfc3339 string
 	if revokedEntry != nil {
-		var revInfo revocationInfo
-		err := revokedEntry.DecodeJSON(&revInfo)
-		if err != nil {
-			return logical.ErrorResponse(fmt.Sprintf("Error decoding revocation entry for serial %s: %s", serial, err)), nil
-		}
-		revocationTime = revInfo.RevocationTime
+		revocationTime = revokedEntry.RevocationTime
 
-		if !revInfo.RevocationTimeUTC.IsZero() {
-			revocationTimeRfc3339 = revInfo.RevocationTimeUTC.Format(time.RFC3339Nano)
+		if !revokedEntry.RevocationTimeUTC.IsZero() {
+			revocationTimeRfc3339 = revokedEntry.RevocationTimeUTC.Format(time.RFC3339Nano)
 		}
 	}
 
@@ -313,7 +352,12 @@ func (b *ejbcaBackend) pathFetchCert(ctx context.Context, req *logical.Request, 
 		Data: map[string]interface{}{},
 	}
 
-	response.Data["certificate"] = certificate
+	bundle, err := entry.ToCertBundle()
+	if err != nil {
+		return nil, err
+	}
+
+	response.Data["certificate"] = bundle.Certificate
 	response.Data["revocation_time"] = revocationTime
 	response.Data["revocation_time_rfc3339"] = revocationTimeRfc3339
 
@@ -336,12 +380,12 @@ func (b *ejbcaBackend) pathFetchCertRaw(ctx context.Context, req *logical.Reques
 		return b.pathFetchCA(ctx, req, data)
 	}
 
-	certEntry, err := sc.Cert().fetchCertBySerial(req.Path, serial)
+	entry, err := sc.Cert().fetchCertBundleBySerial(serial)
 	if err != nil {
 		return response, nil
 	}
 
-	if certEntry == nil || certEntry.Value == nil || len(certEntry.Value) == 0 {
+	if entry == nil {
 		return logical.ErrorResponse("No certificate found for serial " + serial), nil
 	}
 
@@ -353,7 +397,7 @@ func (b *ejbcaBackend) pathFetchCertRaw(ctx context.Context, req *logical.Reques
 	if isPem {
 		certificate = pem.EncodeToMemory(&pem.Block{
 			Type:  "CERTIFICATE",
-			Bytes: certEntry.Value,
+			Bytes: entry.CertificateBytes,
 		})
 
 		contentType = "application/pem-certificate-chain"
@@ -410,3 +454,11 @@ Use /issuer/:ref/der or /issuer/:ref/pem to return just the certificate in
 raw DER or PEM form, without the JSON structure of /issuer/:ref.
 `
 )
+
+const pathListRevokedHelpSyn = `
+List all revoked serial numbers within the local cluster
+`
+
+const pathListRevokedHelpDesc = `
+Returns a list of serial numbers for revoked certificates in the local cluster. 
+`

@@ -53,11 +53,11 @@ func (b *ejbcaBackend) secretCertsRevoke(ctx context.Context, req *logical.Reque
 	sc := b.makeStorageContext(ctx, req.Storage)
 	serial := serialInt.(string)
 
-	certEntry, err := sc.Cert().fetchCertBySerial("certs/", serial)
+	entry, err := sc.Cert().fetchCertBundleBySerial(serial)
 	if err != nil {
 		return nil, err
 	}
-	if certEntry == nil {
+	if entry == nil {
 		// We can't write to revoked/ or update the CRL anyway because we don't have the cert,
 		// and there's no reason to expect this will work on a subsequent
 		// retry.  Just give up and let the lease get deleted.
@@ -65,10 +65,10 @@ func (b *ejbcaBackend) secretCertsRevoke(ctx context.Context, req *logical.Reque
 		return nil, nil
 	}
 
-	cert, err := x509.ParseCertificate(certEntry.Value)
+	cert, err := x509.ParseCertificate(entry.CertificateBytes)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing certificate: %w", err)
 	}
 
-	return revokeCert(sc, cert)
+	return revokeCert(sc, cert.SerialNumber.String())
 }

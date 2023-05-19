@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Keyfactor/ejbca-go-client-sdk/api/ejbca"
+	"github.com/hashicorp/vault/sdk/helper/errutil"
 	"strings"
 )
 
@@ -56,11 +57,11 @@ func newClient(config *ejbcaConfig) (*ejbcaClient, error) {
 	return &ejbcaClient{apiClient}, nil
 }
 
-func (e *ejbcaClient) createErrorFromEjbcaErr(b *ejbcaBackend, operationString string, err error) error {
+func (e *ejbcaClient) createErrorFromEjbcaErr(b *ejbcaBackend, detail string, err error) error {
 	if err == nil {
 		return nil
 	}
-	errString := fmt.Sprintf("Failed to %s - %s", operationString, err.Error())
+	errString := fmt.Sprintf("%s - %s", detail, err.Error())
 
 	bodyError, ok := err.(*ejbca.GenericOpenAPIError)
 	if ok {
@@ -69,7 +70,7 @@ func (e *ejbcaClient) createErrorFromEjbcaErr(b *ejbcaBackend, operationString s
 
 	b.Logger().Error(errString)
 
-	return fmt.Errorf(errString)
+	return errutil.InternalError{Err: errString}
 }
 
 func decodePEMBytes(buf []byte) ([]*pem.Block, *pem.Block) {
