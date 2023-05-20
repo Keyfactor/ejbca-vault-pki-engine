@@ -51,26 +51,34 @@ Download and extract the latest release for your platform.
 ```shell
 OS=$(go env GOOS)
 ARCH=$(go env GOARCH)
-curl -L https://github.com/Keyfactor/ejbca-vault-pki-engine/releases/latest/download/ejbca-vault-pki-engine_$OS_$ARCH.tar.gz
-tar xzf ejbca-vault-pki-engine_$OS_$ARCH.tar.gz
+curl -L https://github.com/Keyfactor/ejbca-vault-pki-engine/releases/latest/download/ejbca-vault-pki-engine-$OS-$ARCH.tar.gz
+tar xzf ejbca-vault-pki-engine-$OS-$ARCH.tar.gz
 ```
 
 Retrieve the SHA256 checksum of the plugin.
 ```shell
 curl -L -o ejbca-sha256sums.txt https://github.com/Keyfactor/ejbca-vault-pki-engine/releases/latest/download/ejbca-vault-pki-engine_SHA256SUMS
-SHA256=$(grep ejbca-vault-pki-engine_$OS_$ARCH.tar.gz ejbca-sha256sums.txt | cut -d ' ' -f1)
+SHA256=$(grep ejbca-vault-pki-engine-$OS-$ARCH.tar.gz ejbca-sha256sums.txt | cut -d ' ' -f1)
 ```
+(the goreleaser currently calculates the hash of the whole .tar.gz file. for now, use the following command to calculate the hash of the plugin binary)
+```shell
+SHA256=$(sha256sum ejbca-vault-pki-engine | cut -d ' ' -f1)
+````
 
+### Install the plugin
+Move the plugin to the Vault plugin directory.
+```shell
 sudo mv ejbca-vault-pki-engine </path/to/vault/plugins>
-
-Register the plugin with Vault.
-```shell
-vault plugin register -sha256=$SHA256 secret ejbca
 ```
 
-Enable the plugin.
+Register SHA256 checksum of the plugin with Vault.
 ```shell
-vault secrets enable -path=ejbca -plugin-name=ejbca plugin
+vault write sys/plugins/catalog/secret/ejbca-vault-pki-engine sha_256=$SHA256 command="ejbca-vault-pki-engine"
+```
+
+Mount the secrets engine and choose a prefix for the path (recommended is `ejbca`).
+```shell
+vault secrets enable -path=ejbca -plugin-name=ejbca-vault-pki-engine plugin
 ```
 
 ## Configuration
