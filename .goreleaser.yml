@@ -21,13 +21,13 @@ builds:
     ignore:
       - goos: darwin
         goarch: '386'
-    binary: '{{ .ProjectName }}_v{{ .Version }}'
-archives:
-  - format: zip
-    name_template: '{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}'
-checksum:
-  name_template: '{{ .ProjectName }}_SHA256SUMS'
-  algorithm: sha256
+#    binary: '{{ .ProjectName }}_v{{ .Version }}'
+#archives:
+#  - format: zip
+#    name_template: '{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}'
+#checksum:
+#  name_template: '{{ .ProjectName }}_SHA256SUMS'
+#  algorithm: sha256
 #signs:
 #  - artifacts: checksum
 #    args:

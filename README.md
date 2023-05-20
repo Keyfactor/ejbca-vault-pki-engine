@@ -30,9 +30,9 @@ The EJBCA PKI Secrets Engine for HashiCorp Vault is open source and community su
 
 ## Installation
 ```shell
-OS=$(go env GOOS); ARCH=$(go env GOARCH); curl -fsSL -o cmctl.tar.gz https://github.com/Keyfactor/ejbca-vault-pki-engine/releases/latest/download/ejbca-vault-pki-engine-$OS-$ARCH.tar.gz
-tar xzf cmctl.tar.gz
-sudo mv cmctl /usr/local/bin
+OS=$(go env GOOS); ARCH=$(go env GOARCH); curl -L -o ejbca.tar.gz https://github.com/Keyfactor/ejbca-vault-pki-engine/releases/latest/download/ejbca-vault-pki-engine-$OS-$ARCH.tar.gz
+tar xzf ejbca.tar.gz
+sudo mv ejbca-vault-pki-engine </path/to/vault/plugins>
 ```
 
 Register the plugin with Vault.
