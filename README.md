@@ -84,11 +84,21 @@ vault write ejbca/roles/example-dot-com \
 	use_pss=false
 ```
 
+The EJBCA PKI Secrets Engine also supports the following additional role fields:
+- `end_entity_profile_name` - The name of the EJBCA End Entity Profile to use for certificate issuance.
+- `certificate_profile_name` - The name of the EJBCA Certificate Profile to use for certificate issuance.
+- `account_binding_id` - EJBCA Account Binding ID.
+
+:pushpin: **Note:** If left blank, the `end_entity_profile_name` and `certificate_profile_name` fields will default to the values configured in the `config` object.
+
 ## Path Overview
 Once the EJBCA PKI Secrets Engine is configured and roles are created, you can use the following paths to issue and sign certificates,
 list certificates, and revoke certificates.
 ### Issue/Sign Paths
-The following 
+The following paths can be used to issue and sign certificates. The `:role_name` parameter is required for all paths except `sign-verbatim`.
+Paths that require the `:issuer_ref` parameter will use the provided name as the EJBCA CA name for certificate issuance.
+
+:pushpin: **Note:** The `/issue` paths generate the CSR and private key on the Vault server.
 
 | Path                                          | Issuer        | CSR required | Subject to role restriction |
 |-----------------------------------------------|---------------|--------------|-----------------------------|
