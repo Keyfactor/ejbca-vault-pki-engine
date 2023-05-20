@@ -127,14 +127,35 @@ The following path can be used to revoke certificates. Either the `serial_number
 |--------|------------------------------------|-----------------------------------------------------------------|
 | revoke | serial_number _or_ certificate PEM | Revokes a certificate by serial number _or_ certificate itself. |
 
+:pushpin: **Note:** The EJBCA PKI Secrets Engine cannot revoke certificates that were not issued by the EJBCA PKI Secrets Engine.
+
 ### Fetch Paths
-| Path            | Content-Type                      | Encoding | Format | Whole chain? |
-|-----------------|-----------------------------------|----------|--------|--------------|
-| ca              | application/pkix-cert             | DER      | DER    | false        |
-| ca/pem          | application/pem-certificate-chain | PEM      | PEM    | true         |
-| cert/ca         | JSON                              | PEM      | JSON   | true         |
-| cert/ca/raw     | application/pkix-cert             | DER      | DER    | false        |
-| cert/ca/raw/pem | application/pem-certificate-chain | PEM      | PEM    | true         |
-| ca_chain        | application/pkix-cert             | PEM      | PEM    | true         |
-| cert/ca_chain   | JSON                              | PEM      | JSON   | true         |
-| cert            | JSON                              | PEM      | JSON   | false        |
+The following paths can be used to fetch CA certificates. The paths that specify a `Content-Type` cannot be consumed using
+the `vault` command, and must be consumed using the Vault HTTP API.
+
+| Path            | Content-Type                      | Encoding | Response Format | Whole chain? |
+|-----------------|-----------------------------------|----------|-----------------|--------------|
+| ca              | application/pkix-cert             | DER      | DER             | false        |
+| ca/pem          | application/pem-certificate-chain | PEM      | PEM             | true         |
+| cert/ca         | <none>                            | PEM      | JSON            | true         |
+| cert/ca/raw     | application/pkix-cert             | DER      | DER             | false        |
+| cert/ca/raw/pem | application/pem-certificate-chain | PEM      | PEM             | true         |
+| ca_chain        | application/pkix-cert             | PEM      | PEM             | true         |
+| cert/ca_chain   | <none>                            | PEM      | JSON            | true         |
+
+The following paths can be used to fetch certificates.
+
+| Path             | Content-Type                       | Encoding |
+|------------------|------------------------------------|----------|
+| cert/:serial     | <none>                             | PEM      |
+| cert/:serial/raw | application/pkix-cert              | DER      |
+| cert/:serial/pem | application/pem-certificate-chain  | PEM      |
+
+:pushpin: **Note:** The fetch methods will never return a private key. Private keys are only returned with the `issue` methods.
+
+Serial numbers of certificates and revoked certificates can be found using the following paths.
+
+| Path          | Description                                                     |
+|---------------|-----------------------------------------------------------------|
+| certs	        | Lists all certificates issued by the EJBCA PKI Secrets Engine.  |
+| certs/revoked | Lists all certificates revoked by the EJBCA PKI Secrets Engine. |
