@@ -2,11 +2,7 @@ before:
   hooks:
     - go mod tidy
 builds:
-  - env:
-      # goreleaser does not work with CGO, it could also complicate
-      # usage by users in CI/CD systems like Terraform Cloud where
-      # they are unable to install libraries.
-      - CGO_ENABLED=0
+  - env: [CGO_ENABLED=0]
     mod_timestamp: '{{ .CommitTimestamp }}'
     flags:
       - -trimpath
@@ -32,17 +28,17 @@ archives:
 checksum:
   name_template: '{{ .ProjectName }}_SHA256SUMS'
   algorithm: sha256
-signs:
-  - artifacts: checksum
-    args:
-      # Running in GitHub actions, pass --batch to indicate it's not interactive.
-      - "--batch"
-      - "--local-user"
-      - "{{ .Env.GPG_FINGERPRINT }}" # set this environment variable for your signing key
-      - "--output"
-      - "${signature}"
-      - "--detach-sign"
-      - "${artifact}"
+#signs:
+#  - artifacts: checksum
+#    args:
+#      # Running in GitHub actions, pass --batch to indicate it's not interactive.
+#      - "--batch"
+#      - "--local-user"
+#      - "{{ .Env.GPG_FINGERPRINT }}" # set this environment variable for your signing key
+#      - "--output"
+#      - "${signature}"
+#      - "--detach-sign"
+#      - "${artifact}"
 release:
   draft: true
 changelog:
