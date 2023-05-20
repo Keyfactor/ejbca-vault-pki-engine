@@ -45,6 +45,27 @@ Enable the plugin.
 vault secrets enable -path=ejbca -plugin-name=ejbca plugin
 ```
 
+## Configuration
+Before using the EJBCA PKI Secrets Engine, you must configure it by providing the following information:
+- EJBCA Hostname
+- Client Certificate
+- Client Private Key
+- Default CA Certificate (used as `issuer_ref` if not configured in role)
+- Default End Entity Profile (used as `end_entity_profile_name` if not configured in role)
+- Default Certificate Profile (used as `certificate_profile_name` if not configured in role)
+
+Use the following vault command to create the `config` object:
+```shell
+vault write ejbca/config \
+	ejbca_hostname="https://ejbca.example.com:8443/ejbca" \
+	client_cert=@/path/to/client/cert.pem \
+	client_key=@/path/to/client/key.pem \
+	ca_cert=@/path/to/ca/cert.pem \
+	end_entity_profile_name="MyEndEntityProfile" \
+	certificate_profile_name="MyCertificateProfile"
+```
+
+
 ## Path Overview
 ### Issue/Sign Paths
 | Path                                          | Issuer        | CSR required | Subject to role restriction |
