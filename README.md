@@ -109,6 +109,11 @@ Paths that require the `:issuer_ref` parameter will use the provided name as the
 | sign-verbatim(/:role_name)                    | default       | Yes          | No                          |
 | issuer/:issuer_ref/sign-verbatim(/:role_name) | Path selected | Yes          | No                          |
 
+The following example issues a certificate using the `example-dot-com` role:
+```shell
+
+```
+
 ### Revoke Paths
 | Path   | Required Parameters                | Description                                                     |
 |--------|------------------------------------|-----------------------------------------------------------------|

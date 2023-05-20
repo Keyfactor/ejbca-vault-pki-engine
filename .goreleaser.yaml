@@ -2,7 +2,7 @@ before:
   hooks:
     - go mod tidy
 builds:
-  - main: cmd/ejbca-pki
+  - main: ./cmd/ejbca-pki
     env: [CGO_ENABLED=0]
     mod_timestamp: '{{ .CommitTimestamp }}'
     flags:
