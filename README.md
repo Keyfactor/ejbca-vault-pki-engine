@@ -75,13 +75,13 @@ vault path-help ejbca/roles/name
 The following example creates a basic role that can be used for issuance:
 ```shell
 vault write ejbca/roles/example-dot-com \
-	allow_any_name=true \
-	allow_subdomains=true \
-	max_ttl=8760h \
-	key_type="rsa" \
-	key_bits=2048 \
-	signature_bits=256 \
-	use_pss=false
+    allow_any_name=true \
+    allow_subdomains=true \
+    max_ttl=8760h \
+    key_type="rsa" \
+    key_bits=2048 \
+    signature_bits=256 \
+    use_pss=false
 ```
 
 The EJBCA PKI Secrets Engine also supports the following additional role fields:
@@ -111,10 +111,18 @@ Paths that require the `:issuer_ref` parameter will use the provided name as the
 
 The following example issues a certificate using the `example-dot-com` role:
 ```shell
-
+vault write ejbca/issue/example-dot-com \
+    common_name="example.com" \
+    alt_names="*.example.com" \
+    format="pem_bundle" \
+    account_binding_id="abc123"
 ```
 
+:pushpin: **Note:** For more information on any of the parameters used in the above example or in the table, use the `vault path-help ejbca/<path>` command.
+
 ### Revoke Paths
+The following path can be used to revoke certificates. Either the `serial_number` or `certificate` parameter is required.
+
 | Path   | Required Parameters                | Description                                                     |
 |--------|------------------------------------|-----------------------------------------------------------------|
 | revoke | serial_number _or_ certificate PEM | Revokes a certificate by serial number _or_ certificate itself. |
@@ -124,8 +132,9 @@ The following example issues a certificate using the `example-dot-com` role:
 |-----------------|-----------------------------------|----------|--------|--------------|
 | ca              | application/pkix-cert             | DER      | DER    | false        |
 | ca/pem          | application/pem-certificate-chain | PEM      | PEM    | true         |
-| cert/ca         | <none>                            | PEM      | JSON   | true         |
+| cert/ca         | JSON                              | PEM      | JSON   | true         |
 | cert/ca/raw     | application/pkix-cert             | DER      | DER    | false        |
 | cert/ca/raw/pem | application/pem-certificate-chain | PEM      | PEM    | true         |
 | ca_chain        | application/pkix-cert             | PEM      | PEM    | true         |
-| cert/ca_chain   | <none>                            | PEM      | JSON   | true         |
+| cert/ca_chain   | JSON                              | PEM      | JSON   | true         |
+| cert            | JSON                              | PEM      | JSON   | false        |
