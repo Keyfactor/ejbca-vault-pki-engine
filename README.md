@@ -29,6 +29,25 @@ The EJBCA PKI Secrets Engine for HashiCorp Vault is open source and community su
 * [HashiCorp Vault](https://www.vaultproject.io/) >= v1.11.0
 
 ## Installation
+### From Source
+Clone the repository and build the plugin.
+```shell
+git clone https://github.com/Keyfactor/ejbca-vault-pki-engine.git
+cd ejbca-vault-pki-engine
+```
+
+Build the plugin for your platform.
+```shell
+go build -o ejbca cmd/ejbca-pki/main.go
+````
+
+Calculate the SHA256 checksum of the plugin.
+```shell
+SHA256=$(sha256sum ejbca | cut -d ' ' -f1)
+```
+
+### From GitHub Release
+Download and extract the latest release for your platform.
 ```shell
 OS=$(go env GOOS); ARCH=$(go env GOARCH); curl -L -o ejbca.tar.gz https://github.com/Keyfactor/ejbca-vault-pki-engine/releases/latest/download/ejbca-vault-pki-engine-$OS-$ARCH.tar.gz
 tar xzf ejbca.tar.gz
