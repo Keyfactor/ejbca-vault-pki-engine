@@ -65,9 +65,31 @@ vault write ejbca/config \
 	certificate_profile_name="MyCertificateProfile"
 ```
 
+## Roles
+The EJBCA PKI Secrets Engine supports the same role configuration as the built-in Vault PKI secrets engine,
+and can be used as a drop-in replacement. Use the following command to get descriptions for these fields:
+```shell
+vault path-help ejbca/roles/name
+```
+
+The following example creates a basic role that can be used for issuance:
+```shell
+vault write ejbca/roles/example-dot-com \
+	allow_any_name=true \
+	allow_subdomains=true \
+	max_ttl=8760h \
+	key_type="rsa" \
+	key_bits=2048 \
+	signature_bits=256 \
+	use_pss=false
+```
 
 ## Path Overview
+Once the EJBCA PKI Secrets Engine is configured and roles are created, you can use the following paths to issue and sign certificates,
+list certificates, and revoke certificates.
 ### Issue/Sign Paths
+The following 
+
 | Path                                          | Issuer        | CSR required | Subject to role restriction |
 |-----------------------------------------------|---------------|--------------|-----------------------------|
 | sign/:role_name                               | Role selected | Yes          | Yes                         |
