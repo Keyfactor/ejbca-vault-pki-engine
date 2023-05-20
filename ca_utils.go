@@ -3,6 +3,7 @@ package ejbca_vault_pki_engine
 import (
 	"context"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
 	"fmt"
 	"github.com/hashicorp/vault/sdk/helper/certutil"
@@ -18,9 +19,8 @@ const (
 )
 
 type caEntry struct {
-	Certificate  string   `json:"certificate"`
-	CAChain      []string `json:"ca_chain"`
-	SerialNumber string   `json:"serial_number"`
+	CaCertificate string   `json:"ca_certificate"`
+	CAChain       []string `json:"ca_chain"`
 }
 
 func (c *caStorageContext) resolveIssuerReference(caName string) error {
@@ -53,7 +53,7 @@ func (c *caStorageContext) putCaEntry(caName string, entry caEntry) error {
 }
 
 func (c *caStorageContext) fetchCaBundle(caName string) (*certutil.CAInfoBundle, error) {
-	storageEntry, err := c.storageContext.Storage.Get(c.storageContext.Context, "config/issuer/"+caName)
+	storageEntry, err := c.storageContext.Storage.Get(c.storageContext.Context, issuerPath+caName)
 	if err != nil {
 		return nil, errutil.InternalError{Err: fmt.Sprintf("error fetching CA certificate: %s", err)}
 	}
@@ -102,10 +102,11 @@ func (c *caStorageContext) fetchCaBundle(caName string) (*certutil.CAInfoBundle,
 		}
 
 		// Store the CA certificate and chain in Vault
+
 		parsedStorageEntry = caEntry{
-			Certificate:  chainList[0],
-			CAChain:      chainList[1:],
-			SerialNumber: chain[0].SerialNumber.String(),
+			//SerialNumber:  certutil.GetHexFormatted(chain[0].SerialNumber.Bytes(), ":"),
+			CaCertificate: chainList[0],
+			CAChain:       chainList[1:],
 		}
 		err = c.putCaEntry(caName, parsedStorageEntry)
 		if err != nil {
@@ -113,23 +114,19 @@ func (c *caStorageContext) fetchCaBundle(caName string) (*certutil.CAInfoBundle,
 		}
 	}
 
-	if parsedStorageEntry.Certificate == "" {
+	if parsedStorageEntry.CaCertificate == "" {
 		return nil, errutil.InternalError{Err: fmt.Sprintf("returned CA certificate bytes were empty")}
 	}
 
 	certBundle := &certutil.CertBundle{
-		Certificate:  parsedStorageEntry.Certificate,
-		CAChain:      parsedStorageEntry.CAChain,
-		SerialNumber: parsedStorageEntry.SerialNumber,
+		//SerialNumber: parsedStorageEntry.SerialNumber,
+		Certificate: parsedStorageEntry.CaCertificate,
+		CAChain:     parsedStorageEntry.CAChain,
 	}
 
 	parsedBundle, err := certBundle.ToParsedCertBundle()
 	if err != nil {
 		return nil, errutil.InternalError{Err: fmt.Sprintf("error parsing ca cert bundle: %s", err)}
-	}
-
-	if parsedBundle.Certificate == nil {
-		return nil, errutil.InternalError{Err: "stored CA information not able to be parsed"}
 	}
 
 	caInfo := &certutil.CAInfoBundle{
@@ -164,7 +161,16 @@ func (b *caResponseBuilder) getPemEncoder() func(*certutil.CAInfoBundle) []strin
 
 func (b *caResponseBuilder) getDerEncoder() func(*certutil.CAInfoBundle) []string {
 	return func(caBundle *certutil.CAInfoBundle) []string {
-		return []string{string(caBundle.Certificate.Raw)}
+		var derStringList []string
+		if b.includeChain {
+			rawChain := caBundle.GetFullChain()
+			for _, cert := range rawChain {
+				derStringList = append(derStringList, base64.StdEncoding.EncodeToString(cert.Bytes))
+			}
+		} else {
+			derStringList = append(derStringList, base64.StdEncoding.EncodeToString(caBundle.Certificate.Raw))
+		}
+		return derStringList
 	}
 }
 
@@ -216,13 +222,6 @@ func (b *caResponseBuilder) Config(sc *storageContext, path string) *caResponseB
 
 	return b
 }
-
-// Path                     |      Content-Type                    | Encoding  | Format                | Whole chain?
-// ------------------------ | ------------------------------------ | --------- | --------------------- | ------------
-// issuer/:issuer_ref/json  | <none> 							   | PEM 	   | JSON 		    	   | true
-// issuer/:issuer_ref/pem   | application/pem-certificate-chain    | PEM       | PEM 				   | true
-// issuer/:issuer_ref/der   | application/pkix-cert                | DER 	   | DER 				   | false
-// issuer/:issuer_ref       | <none>                               | PEM       | PEM 				   | true
 
 // The /pki/issuer/:issuer_ref/json endpoint must return the following JSON structure:
 // {
@@ -281,6 +280,13 @@ func (b *caResponseBuilder) IssuerConfig(sc *storageContext, path string, issuer
 		}
 	}
 
+	// If path is not JSON response, initialize response object as failure
+	b.response = &logical.Response{Data: map[string]interface{}{}}
+	if !b.isJsonResponse {
+		b.response.Data[logical.HTTPRawBody] = []byte{}
+		b.response.Data[logical.HTTPStatusCode] = http.StatusNoContent
+	}
+
 	b.caName = issuerName
 
 	return b
@@ -312,10 +318,11 @@ func (b *caResponseBuilder) Build() (*logical.Response, error) {
 		}
 
 		b.response.Data["certificate"] = encodedCa[0]
-		b.response.Data["ca_chain"] = []string{}
+		var chain []string
 		for _, cert := range encodedCa[1:] {
-			b.response.Data["ca_chain"] = append(b.response.Data["ca_chain"].([]string), cert)
+			chain = append(chain, cert)
 		}
+		b.response.Data["ca_chain"] = chain
 		for key, value := range b.customJsonSchema {
 			b.response.Data[key] = value
 		}

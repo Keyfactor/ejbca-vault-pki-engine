@@ -43,7 +43,9 @@ func revokeCert(sc *storageContext, serialNumber string) (*logical.Response, err
 		return nil, err
 	}
 
-	execute, _, err := client.V1CertificateApi.RevokeCertificate(sc.Context, parsedBundle.Certificate.Issuer.String(), serialNumber).Reason("CESSATION_OF_OPERATION").Execute()
+	renormSerialNumber := strings.ReplaceAll(denormalizeSerial(serialNumber), ":", "")
+
+	execute, _, err := client.V1CertificateApi.RevokeCertificate(sc.Context, parsedBundle.Certificate.Issuer.String(), renormSerialNumber).Reason("CESSATION_OF_OPERATION").Execute()
 	if err != nil {
 		return nil, client.createErrorFromEjbcaErr(sc.Backend, "failed to revoke certificate with serial number "+serialNumber, err)
 	}
@@ -196,16 +198,7 @@ func (i *issueSignHelper) Init(sc *storageContext, path string, data *framework.
 
 func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.CertificateRestResponse) (*logical.Response, error) {
 	data := map[string]interface{}{}
-
-	caParsedBundle, err := i.storageContext.CA().fetchCaBundle(i.getCaName())
-	if err != nil {
-		return nil, err
-	}
-
-	caBundle, err := caParsedBundle.ToCertBundle()
-	if err != nil {
-		return nil, err
-	}
+	var err error
 
 	var certBytes []byte
 
@@ -238,41 +231,43 @@ func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.Cer
 		return nil, err
 	}
 
-	certPem, err := compileCertificatesToPemString([]*x509.Certificate{cert})
+	caParsedBundle, err := i.storageContext.CA().fetchCaBundle(i.getCaName())
 	if err != nil {
 		return nil, err
 	}
 
-	certBundle := certutil.CertBundle{
-		Certificate:    certPem,
-		IssuingCA:      caBundle.Certificate,
-		CAChain:        caBundle.CAChain,
-		SerialNumber:   enrollResponse.GetSerialNumber(),
-		PrivateKeyType: i.privateKeyHelper.GetPrivateKeyType(),
-		PrivateKey:     i.privateKeyHelper.GetPrivateKeyPemString(),
+	parsedCertBundle := certutil.ParsedCertBundle{
+		CertificateBytes: cert.Raw,
+		Certificate:      cert,
+		CAChain:          caParsedBundle.GetFullChain(),
+	}
+
+	certBundle, err := parsedCertBundle.ToCertBundle()
+	if err != nil {
+		return nil, err
 	}
 
 	data["expiration"] = cert.NotAfter.Unix()
-	data["serial_number"] = enrollResponse.GetSerialNumber()
+	data["serial_number"] = certBundle.SerialNumber
 
 	switch i.getCertFormat() {
 	case "pem":
-		data["certificate"] = certPem
-		data["issuing_ca"] = caBundle.Certificate
-		data["ca_chain"] = caBundle.CAChain
+		data["certificate"] = certBundle.Certificate
+		data["issuing_ca"] = certBundle.CAChain[0]
+		data["ca_chain"] = certBundle.CAChain
 	case "pem_bundle":
 		data["certificate"] = certBundle.ToPEMBundle()
-		data["issuing_ca"] = caBundle.Certificate
-		data["ca_chain"] = caBundle.CAChain
+		data["issuing_ca"] = certBundle.CAChain[0]
+		data["ca_chain"] = certBundle.CAChain
 	case "der":
 		var derChain []string
 
-		for _, cert := range caParsedBundle.CAChain {
-			derChain = append(derChain, base64.StdEncoding.EncodeToString(cert.Bytes))
+		for _, block := range caParsedBundle.GetFullChain() {
+			derChain = append(derChain, base64.StdEncoding.EncodeToString(block.Bytes))
 		}
 
 		data["certificate"] = base64.StdEncoding.EncodeToString(cert.Raw)
-		data["issuing_ca"] = base64.StdEncoding.EncodeToString(caParsedBundle.Certificate.Raw)
+		data["issuing_ca"] = derChain[0]
 		data["ca_chain"] = derChain
 	}
 
@@ -309,7 +304,7 @@ func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.Cer
 		resp = i.storageContext.Backend.Secret(SecretCertsEjbcaType).Response(
 			data,
 			map[string]interface{}{
-				"serial_number": enrollResponse.GetSerialNumber(),
+				"serial_number": certBundle.SerialNumber,
 			})
 		resp.Secret.TTL = cert.NotAfter.Sub(time.Now())
 	}
@@ -319,8 +314,8 @@ func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.Cer
 		entry := &certEntry{
 			Certificate:    certBundle.Certificate,
 			SerialNumber:   certBundle.SerialNumber,
-			PrivateKeyType: certBundle.PrivateKeyType,
-			PrivateKey:     certBundle.PrivateKey,
+			PrivateKeyType: i.privateKeyHelper.GetPrivateKeyType(),
+			PrivateKey:     i.privateKeyHelper.GetPrivateKeyPemString(),
 			IssuerName:     i.getCaName(),
 		}
 		err = i.storageContext.Cert().putCertEntry(entry)
@@ -334,7 +329,6 @@ func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.Cer
 
 func (i *issueSignHelper) SetRole() error {
 	var err error
-	role := &roleEntry{}
 	roleRequired := true
 
 	if i.isSignVerbatim() {
@@ -347,18 +341,17 @@ func (i *issueSignHelper) SetRole() error {
 		roleName = r.(string)
 	}
 
-	if roleName != "" {
-		// Get the role
-		role, err = i.storageContext.Role().getRole(roleName)
-		if err != nil {
-			return err
-		}
-		if role == nil && (roleRequired || roleName != "") {
-			return fmt.Errorf("unknown role: %s", roleName)
-		}
+	// Get the role
+	role, err := i.storageContext.Role().getRole(roleName)
+	if err != nil {
+		return err
+	}
+	if role == nil && (roleRequired || roleName != "") {
+		return fmt.Errorf("unknown role: %s", roleName)
 	}
 
 	if i.isSignVerbatim() {
+		role = &roleEntry{}
 		role.AllowLocalhost = true
 		role.AllowAnyName = true
 		role.AllowIPSANs = true
@@ -395,7 +388,7 @@ func (i *issueSignHelper) isSignVerbatim() bool {
 	// - sign-verbatim(/:role_name)
 	// - issuer/:issuer_ref/sign-verbatim(/:role_name)
 
-	return strings.HasPrefix(i.path, "sign-verbatim") || (strings.HasPrefix(i.path, "issuer/") && strings.Contains(i.path, "/sign-verbatim/"))
+	return strings.HasPrefix(i.path, "sign-verbatim") || (strings.HasPrefix(i.path, "issuer/") && strings.Contains(i.path, "/sign-verbatim"))
 }
 
 func (i *issueSignHelper) getCaName() string {
@@ -440,8 +433,7 @@ func (i *issueSignHelper) isCsrEnroll() bool {
 	// , it is a CSR enrollment
 	if strings.HasPrefix(i.path, "sign/") ||
 		(strings.HasPrefix(i.path, "issuer/") && strings.Contains(i.path, "sign/")) ||
-		strings.HasPrefix(i.path, "sign-verbatim/") ||
-		(strings.HasPrefix(i.path, "sign-verbatim/") && strings.Contains(i.path, "sign-verbatim")) {
+		strings.HasPrefix(i.path, "sign-verbatim") {
 		return true
 	}
 
@@ -463,7 +455,7 @@ func (i *issueSignHelper) getAccountBindingId() string {
 	}
 
 	// Otherwise, use the account binding ID from the request
-	accountId, ok := i.data.GetOk("account_id")
+	accountId, ok := i.data.GetOk("account_binding_id")
 	if !ok {
 		return ""
 	}

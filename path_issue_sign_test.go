@@ -46,37 +46,47 @@ func TestPathIssueSign(t *testing.T) {
 	assert.NoError(t, err)
 
 	t.Run("sign/:role_name", func(t *testing.T) {
-		err = testSign(b, reqStorage, fmt.Sprintf("sign/%s", testRoleName))
+		err = testSign(t, b, reqStorage, fmt.Sprintf("sign/%s", testRoleName))
 		assert.NoError(t, err)
 	})
 
 	t.Run("issuer/:issuer_ref/sign/:role_name", func(t *testing.T) {
-		err = testSign(b, reqStorage, fmt.Sprintf("issuer/%s/sign/%s", _defaultCaName, testRoleName))
+		err = testSign(t, b, reqStorage, fmt.Sprintf("issuer/%s/sign/%s", _defaultCaName, testRoleName))
 		assert.NoError(t, err)
 	})
 
 	t.Run("sign-verbatim", func(t *testing.T) {
-		err = testSign(b, reqStorage, fmt.Sprintf("sign-verbatim"))
+		err = testSign(t, b, reqStorage, fmt.Sprintf("sign-verbatim"))
 		assert.NoError(t, err)
 	})
 
 	t.Run("sign-verbatim(/:role_name)", func(t *testing.T) {
-		err = testSign(b, reqStorage, fmt.Sprintf("sign-verbatim/%s", testRoleName))
+		err = testSign(t, b, reqStorage, fmt.Sprintf("sign-verbatim/%s", testRoleName))
+		assert.NoError(t, err)
+	})
+
+	t.Run("sign-verbatim", func(t *testing.T) {
+		err = testSign(t, b, reqStorage, fmt.Sprintf("sign-verbatim"))
 		assert.NoError(t, err)
 	})
 
 	t.Run("issue/:role_name", func(t *testing.T) {
-		err = testIssue(b, reqStorage, fmt.Sprintf("issue/%s", testRoleName))
+		err = testIssue(t, b, reqStorage, fmt.Sprintf("issue/%s", testRoleName))
 		assert.NoError(t, err)
 	})
 
 	t.Run("issuer/:issuer_ref/sign-verbatim(/:role_name)", func(t *testing.T) {
-		err = testIssue(b, reqStorage, fmt.Sprintf("issuer/%s/issue/%s", _defaultCaName, testRoleName))
+		err = testSign(t, b, reqStorage, fmt.Sprintf("issuer/%s/sign-verbatim/%s", _defaultCaName, testRoleName))
+		assert.NoError(t, err)
+	})
+
+	t.Run("issuer/:issuer_ref/sign-verbatim", func(t *testing.T) {
+		err = testSign(t, b, reqStorage, fmt.Sprintf("issuer/%s/sign-verbatim", _defaultCaName))
 		assert.NoError(t, err)
 	})
 }
 
-func testSign(b logical.Backend, s logical.Storage, path string) error {
+func testSign(t *testing.T, b logical.Backend, s logical.Storage, path string) error {
 	// Generate CSR
 	csr, err := generateCSR("CN=EJBCAVaultTest_" + generateRandomString(16))
 	if err != nil {
@@ -88,7 +98,9 @@ func testSign(b logical.Backend, s logical.Storage, path string) error {
 		Path:      path,
 		Storage:   s,
 		Data: map[string]interface{}{
-			"csr": csr,
+			"csr":                csr,
+			"format":             "pem",
+			"private_key_format": "pkcs8",
 		},
 	})
 
@@ -100,10 +112,12 @@ func testSign(b logical.Backend, s logical.Storage, path string) error {
 		return resp.Error()
 	}
 
-	return nil
+	t.Logf("resp.Data:\n%v", resp.Data)
+
+	return testFetchCert(t, b, s, resp.Data["serial_number"].(string))
 }
 
-func testIssue(b logical.Backend, s logical.Storage, path string) error {
+func testIssue(t *testing.T, b logical.Backend, s logical.Storage, path string) error {
 	cn := "EJBCAVaultTest_" + generateRandomString(16)
 	resp, err := b.HandleRequest(context.Background(), &logical.Request{
 		Operation: logical.UpdateOperation,
@@ -121,6 +135,34 @@ func testIssue(b logical.Backend, s logical.Storage, path string) error {
 
 	if resp != nil && resp.IsError() {
 		return resp.Error()
+	}
+
+	t.Logf("resp.Data:\n%v", resp.Data)
+
+	return testFetchCert(t, b, s, resp.Data["serial_number"].(string))
+}
+
+func testFetchCert(t *testing.T, b logical.Backend, s logical.Storage, serial string) error {
+	paths := []string{"", "/raw", "/raw/pem"}
+
+	for _, path := range paths {
+		path = "cert/" + serial + path
+		t.Logf("Fetching %s", path)
+		resp, err := b.HandleRequest(context.Background(), &logical.Request{
+			Operation: logical.ReadOperation,
+			Path:      path,
+			Storage:   s,
+		})
+
+		if err != nil {
+			return err
+		}
+
+		if resp != nil && resp.IsError() {
+			return resp.Error()
+		}
+
+		t.Logf("resp.Data:\n%v", resp.Data)
 	}
 
 	return nil

@@ -2,6 +2,7 @@ package ejbca_vault_pki_engine
 
 import (
 	"context"
+	"encoding/pem"
 	"fmt"
 	"github.com/hashicorp/vault/sdk/helper/certutil"
 	"github.com/hashicorp/vault/sdk/helper/errutil"
@@ -160,16 +161,16 @@ func (c *certStorageContext) fetchCertBundleBySerial(serial string) (*certutil.P
 		return nil, errutil.InternalError{Err: fmt.Sprintf("returned certificate bytes were empty")}
 	}
 
-	var caCertBundle *certutil.CertBundle
+	caCertBundle := &certutil.CertBundle{CAChain: []string{}}
 	if parsedStorageEntry.IssuerName != "" {
 		var caInfo *certutil.CAInfoBundle
 		caInfo, err = c.storageContext.CA().fetchCaBundle(parsedStorageEntry.IssuerName)
 		if err != nil {
 			return nil, errutil.InternalError{Err: fmt.Sprintf("error fetching certificate bundle for certificate with sn %s: %s", path, err)}
 		}
-		caCertBundle, err = caInfo.ToCertBundle()
-		if err != nil {
-			return nil, errutil.InternalError{Err: fmt.Sprintf("error fetching certificate bundle for certificate with sn %s: %s", path, err)}
+		fullChain := caInfo.GetFullChain()
+		for _, cert := range fullChain {
+			caCertBundle.CAChain = append(caCertBundle.CAChain, string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Bytes})))
 		}
 	}
 
@@ -223,6 +224,25 @@ func (c *certStorageContext) listRevokedCerts() ([]string, error) {
 	list, err := c.storageContext.Storage.List(c.storageContext.Context, revokedPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed listing revoked certs: %w", err)
+	}
+
+	// Normalize serial back to a format people are expecting.
+	for i, serial := range list {
+		list[i] = denormalizeSerial(serial)
+	}
+
+	return list, err
+}
+
+func (c *certStorageContext) listCerts() ([]string, error) {
+	list, err := c.storageContext.Storage.List(c.storageContext.Context, "certs/")
+	if err != nil {
+		return nil, fmt.Errorf("failed listing certs: %w", err)
+	}
+
+	// Normalize serial back to a format people are expecting.
+	for i, serial := range list {
+		list[i] = denormalizeSerial(serial)
 	}
 
 	return list, err

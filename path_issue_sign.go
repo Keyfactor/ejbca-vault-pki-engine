@@ -161,23 +161,6 @@ comma-delimited list.`,
 		},
 	}
 
-	// TODO I don't think we want these to be configurable outside the role
-	fields["end_entity_profile"] = &framework.FieldSchema{
-		Type:        framework.TypeString,
-		Description: `The end entity profile to use for the certificate request.`,
-		DisplayAttrs: &framework.DisplayAttributes{
-			Name: "End Entity Profile",
-		},
-	}
-
-	fields["certificate_profile"] = &framework.FieldSchema{
-		Type:        framework.TypeString,
-		Description: `The certificate profile to use for the certificate request.`,
-		DisplayAttrs: &framework.DisplayAttributes{
-			Name: "Certificate Profile",
-		},
-	}
-
 	fields["account_binding_id"] = &framework.FieldSchema{
 		Type:        framework.TypeString,
 		Description: `The account binding ID to use for the certificate request.`,

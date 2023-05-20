@@ -2,6 +2,7 @@ package ejbca_vault_pki_engine
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/pem"
 	"github.com/hashicorp/vault/sdk/framework"
 	"github.com/hashicorp/vault/sdk/helper/errutil"
@@ -29,9 +30,9 @@ var pathFetchReadSchema = map[int][]framework.Response{
 				Description: `Revocation time`,
 				Required:    false,
 			},
-			"issuer_id": {
+			"revocation_time_rfc3339": {
 				Type:        framework.TypeString,
-				Description: `ID of the issuer`,
+				Description: "Revocation time in RFC3339 format",
 				Required:    false,
 			},
 			"ca_chain": {
@@ -52,6 +53,13 @@ var pathFetchReadSchema = map[int][]framework.Response{
 // cert/ca/raw/pem | application/pem-certificate-chain    | PEM 	  | PEM 				  | true
 // ca_chain		   | application/pkix-cert                | PEM 	  | PEM 				  | true
 // cert/ca_chain   | <none>                               | PEM 	  | JSON 				  | true
+
+// Path                     |      Content-Type                    | Encoding  | Format                | Whole chain?
+// ------------------------ | ------------------------------------ | --------- | --------------------- | ------------
+// issuer/:issuer_ref/json  | <none> 							   | PEM 	   | JSON 		    	   | true
+// issuer/:issuer_ref/pem   | application/pem-certificate-chain    | PEM       | PEM 				   | true
+// issuer/:issuer_ref/der   | application/pkix-cert                | DER 	   | DER 				   | false
+// issuer/:issuer_ref       | <none>                               | PEM       | PEM 				   | true
 
 func pathFetch(b *ejbcaBackend) []*framework.Path {
 	return []*framework.Path{
@@ -189,6 +197,13 @@ func pathFetch(b *ejbcaBackend) []*framework.Path {
 				OperationSuffix: "issuer",
 			},
 
+			Fields: map[string]*framework.FieldSchema{
+				issuerRefParam: {
+					Type:        framework.TypeString,
+					Description: "The name of the EJBCA CA",
+				},
+			},
+
 			Operations: map[logical.Operation]framework.OperationHandler{
 				logical.ReadOperation: &framework.PathOperation{
 					Callback: b.pathFetchIssuer,
@@ -243,6 +258,13 @@ func pathFetch(b *ejbcaBackend) []*framework.Path {
 				OperationSuffix: "issuer-json|issuer-der|issuer-pem",
 			},
 
+			Fields: map[string]*framework.FieldSchema{
+				issuerRefParam: {
+					Type:        framework.TypeString,
+					Description: "The name of the EJBCA CA",
+				},
+			},
+
 			Operations: map[logical.Operation]framework.OperationHandler{
 				logical.ReadOperation: &framework.PathOperation{
 					Callback: b.pathFetchIssuer,
@@ -280,12 +302,14 @@ func pathFetch(b *ejbcaBackend) []*framework.Path {
 }
 
 func (b *ejbcaBackend) pathFetchCertList(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	entries, err := req.Storage.List(ctx, "certs/")
+	sc := b.makeStorageContext(ctx, req.Storage)
+
+	certs, err := sc.Cert().listCerts()
 	if err != nil {
 		return nil, err
 	}
 
-	return logical.ListResponse(entries), nil
+	return logical.ListResponse(certs), nil
 }
 
 func (b *ejbcaBackend) pathFetchRevokedCertList(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
@@ -294,11 +318,6 @@ func (b *ejbcaBackend) pathFetchRevokedCertList(ctx context.Context, req *logica
 	revokedCerts, err := sc.Cert().listRevokedCerts()
 	if err != nil {
 		return nil, err
-	}
-
-	// Normalize serial back to a format people are expecting.
-	for i, serial := range revokedCerts {
-		revokedCerts[i] = denormalizeSerial(serial)
 	}
 
 	return logical.ListResponse(revokedCerts), nil
@@ -338,18 +357,18 @@ func (b *ejbcaBackend) pathFetchCert(ctx context.Context, req *logical.Request, 
 		}
 	}
 
+	response := &logical.Response{
+		Data: map[string]interface{}{},
+	}
+
 	var revocationTime int64
 	var revocationTimeRfc3339 string
-	if revokedEntry != nil {
+	if revokedEntry.Certificate != "" && revokedEntry.RevocationTime > 0 {
 		revocationTime = revokedEntry.RevocationTime
 
 		if !revokedEntry.RevocationTimeUTC.IsZero() {
 			revocationTimeRfc3339 = revokedEntry.RevocationTimeUTC.Format(time.RFC3339Nano)
 		}
-	}
-
-	response := &logical.Response{
-		Data: map[string]interface{}{},
 	}
 
 	bundle, err := entry.ToCertBundle()
@@ -360,6 +379,7 @@ func (b *ejbcaBackend) pathFetchCert(ctx context.Context, req *logical.Request, 
 	response.Data["certificate"] = bundle.Certificate
 	response.Data["revocation_time"] = revocationTime
 	response.Data["revocation_time_rfc3339"] = revocationTimeRfc3339
+	response.Data["ca_chain"] = bundle.CAChain
 
 	return response, nil
 }
@@ -403,6 +423,7 @@ func (b *ejbcaBackend) pathFetchCertRaw(ctx context.Context, req *logical.Reques
 		contentType = "application/pem-certificate-chain"
 	} else {
 		contentType = "application/pkix-cert"
+		certificate = []byte(base64.StdEncoding.EncodeToString(entry.CertificateBytes))
 	}
 
 	certificate = []byte(strings.TrimSpace(string(certificate)))
