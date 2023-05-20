@@ -26,7 +26,7 @@ builds:
     binary: '{{ .ProjectName }}'
 archives:
   - format: tar.gz
-    name_template: '{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}'
+    name_template: '{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}'
 checksum:
   name_template: '{{ .ProjectName }}_SHA256SUMS'
   algorithm: sha256

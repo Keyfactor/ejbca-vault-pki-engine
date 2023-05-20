@@ -38,21 +38,30 @@ cd ejbca-vault-pki-engine
 
 Build the plugin for your platform.
 ```shell
-go build -o ejbca cmd/ejbca-pki/main.go
+go build -o ejbca-vault-pki-engine cmd/ejbca-pki/main.go
 ````
 
 Calculate the SHA256 checksum of the plugin.
 ```shell
-SHA256=$(sha256sum ejbca | cut -d ' ' -f1)
+SHA256=$(sha256sum ejbca-vault-pki-engine | cut -d ' ' -f1)
 ```
 
 ### From GitHub Release
 Download and extract the latest release for your platform.
 ```shell
-OS=$(go env GOOS); ARCH=$(go env GOARCH); curl -L -o ejbca.tar.gz https://github.com/Keyfactor/ejbca-vault-pki-engine/releases/latest/download/ejbca-vault-pki-engine-$OS-$ARCH.tar.gz
-tar xzf ejbca.tar.gz
-sudo mv ejbca-vault-pki-engine </path/to/vault/plugins>
+OS=$(go env GOOS)
+ARCH=$(go env GOARCH)
+curl -L https://github.com/Keyfactor/ejbca-vault-pki-engine/releases/latest/download/ejbca-vault-pki-engine_$OS_$ARCH.tar.gz
+tar xzf ejbca-vault-pki-engine_$OS_$ARCH.tar.gz
 ```
+
+Retrieve the SHA256 checksum of the plugin.
+```shell
+curl -L -o ejbca-sha256sums.txt https://github.com/Keyfactor/ejbca-vault-pki-engine/releases/latest/download/ejbca-vault-pki-engine_SHA256SUMS
+SHA256=$(grep ejbca-vault-pki-engine_$OS_$ARCH.tar.gz ejbca-sha256sums.txt | cut -d ' ' -f1)
+```
+
+sudo mv ejbca-vault-pki-engine </path/to/vault/plugins>
 
 Register the plugin with Vault.
 ```shell
