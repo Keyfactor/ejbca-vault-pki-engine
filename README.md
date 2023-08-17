@@ -19,6 +19,13 @@ The EJBCA PKI Secrets Engine for HashiCorp Vault is open source and community su
 
 ###### To report a problem or suggest a new feature, use the **[Issues](../../issues)** tab. If you want to contribute actual bug fixes or proposed enhancements, see the [contribution guidelines](https://github.com/Keyfactor/ejbca-k8s-csr-signer/blob/main/CONTRIBUTING.md) and use the **[Pull requests](../../pulls)** tab.
 
+## EJBCA API Usage
+The EJBCA PKI Secrets Engine requires the following API endpoints:
+* `GET /v1/ca/{subject_dn}/certificate/download` - Used to fetch CA certificates and certificate chains based on the CA's subject DN.
+* `GET /v1/ca` - Used to verify the CA name provided as `issuer_ref`.
+* `PUT /v1/certificate/{issuer_dn}/{certificate_serial_number}/revoke` - Used to revoke certificates.
+* `POST /v1/certificate/pkcs10enroll` - Used to issue certificates.
+
 ## Requirements
 ### To build
 * [Git](https://git-scm.com/)
