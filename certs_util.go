@@ -199,6 +199,15 @@ type issueSignHelper struct {
 	privateKeyHelper *privateKeyHelper
 }
 
+func (i *issueSignHelper) getRoleName() string {
+	var roleName string
+	r, ok := i.data.GetOk("role")
+	if ok {
+		roleName = r.(string)
+	}
+	return roleName
+}
+
 func (i *issueSignHelper) Init(sc *storageContext, path string, data *framework.FieldData) {
 	i.storageContext = sc
 	i.path = path
@@ -499,9 +508,15 @@ func (i *issueSignHelper) getPrivateKeyFormat() string {
 // ====================
 
 func (i *issueSignHelper) getSubject() (pkix.Name, error) {
-	cn, ok := i.data.GetOk("common_name")
-	if !ok && i.role.RequireCN {
-		return pkix.Name{}, fmt.Errorf("common_name is required")
+	cnInterface := i.data.Get("common_name")
+
+	cn, ok := cnInterface.(string)
+	if !ok {
+		return pkix.Name{}, fmt.Errorf("common_name is not a string")
+	}
+
+	if i.role.RequireCN && cn == "" {
+		return pkix.Name{}, fmt.Errorf("common_name is required for role called %q", i.getRoleName())
 	}
 
 	return pkix.Name{
@@ -512,7 +527,7 @@ func (i *issueSignHelper) getSubject() (pkix.Name, error) {
 		Province:           i.role.Province,
 		StreetAddress:      i.role.StreetAddress,
 		PostalCode:         i.role.PostalCode,
-		CommonName:         cn.(string),
+		CommonName:         cn,
 	}, nil
 }
 

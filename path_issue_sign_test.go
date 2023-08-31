@@ -51,6 +51,7 @@ func TestPathIssueSign(t *testing.T) {
 		"key_bits":       2048,
 		"signature_bits": 256,
 		"use_pss":        false,
+		"require_cn":     false,
 	}
 
 	err = testRoleCreate(t, b, reqStorage, issueSignRole)
@@ -129,14 +130,14 @@ func testSign(t *testing.T, b logical.Backend, s logical.Storage, path string) e
 }
 
 func testIssue(t *testing.T, b logical.Backend, s logical.Storage, path string) error {
-	cn := "EJBCAVaultTest_" + generateRandomString(16)
+	//cn := "EJBCAVaultTest_" + generateRandomString(16)
 	resp, err := b.HandleRequest(context.Background(), &logical.Request{
 		Operation: logical.UpdateOperation,
 		Path:      path,
 		Storage:   s,
 		Data: map[string]interface{}{
-			"common_name": cn,
-			"alt_names":   "example.com",
+			//	"common_name": cn,
+			"alt_names": "example.com",
 		},
 	})
 
