@@ -43,7 +43,7 @@ func (c *caStorageContext) resolveIssuerReference(caName string) error {
 	// Get a list of all CAs
 	caList, _, err := client.V1CaApi.ListCas(c.storageContext.Context).Execute()
 	if err != nil {
-		return err
+		return fmt.Errorf("error fetching CA list: %v", err)
 	}
 
 	for _, ca := range caList.GetCertificateAuthorities() {
@@ -85,7 +85,7 @@ func (c *caStorageContext) fetchCaBundle(caName string) (*certutil.CAInfoBundle,
 		// Get a list of all CAs
 		caList, _, err := client.V1CaApi.ListCas(c.storageContext.Context).Execute()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("error fetching CA list: %v", err)
 		}
 
 		// Find the subject DN of the CA we're looking for
@@ -357,7 +357,7 @@ func getCaChain(ctx context.Context, client *ejbcaClient, issuerDn string) ([]*x
 
 	caResp, err := client.V1CaApi.GetCertificateAsPem(ctx, issuerDn).Execute()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error fetching CA chain: %v", err)
 	}
 
 	// Read all bytes from response body
