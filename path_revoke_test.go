@@ -26,6 +26,7 @@ func TestPathRevoke(t *testing.T) {
 	err := testConfigCreate(t, b, reqStorage, map[string]interface{}{
 		"client_cert":                 clientCert,
 		"client_key":                  clientKey,
+		"ca_cert":                     caCert,
 		"hostname":                    hostname,
 		"default_ca":                  _defaultCaName,
 		"default_end_entity_profile":  defaultEndEntityProfile,
@@ -60,7 +61,19 @@ func TestPathRevoke(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
 
-	serialNumber := resp.Data["serial_number"].(string)
+	if resp == nil {
+		t.Fatal("response is nil")
+	}
+
+	if resp.Data == nil {
+		t.Fatal("response data is nil")
+	}
+
+	serialNumberInterface, ok := resp.Data["serial_number"]
+	if !ok {
+		t.Fatal("serial_number not found in response")
+	}
+	serialNumber := serialNumberInterface.(string)
 
 	t.Run("revoke", func(t *testing.T) {
 		resp, err = b.HandleRequest(context.Background(), &logical.Request{

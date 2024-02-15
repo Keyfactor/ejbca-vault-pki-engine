@@ -28,6 +28,7 @@ type ejbcaConfig struct {
 	Hostname                      string `json:"hostname"`
 	ClientCert                    string `json:"client_cert"`
 	ClientKey                     string `json:"client_key"`
+	CaCert                        string `json:"ca_cert"`
 	DefaultCAName                 string `json:"default_ca"`
 	DefaultEndEntityProfileName   string `json:"default_end_entity_profile"`
 	DefaultCertificateProfileName string `json:"default_certificate_profile"`
@@ -62,6 +63,15 @@ func pathConfig(b *ejbcaBackend) []*framework.Path {
 					Required:    true,
 					DisplayAttrs: &framework.DisplayAttributes{
 						Name:      "EJBCA Client Certificate Key",
+						Sensitive: true,
+					},
+				},
+				"ca_cert": {
+					Type:        framework.TypeString,
+					Description: "EJBCA API CA certificate as a X.509 v3 PEM encoded certificate.",
+					Required:    true,
+					DisplayAttrs: &framework.DisplayAttributes{
+						Name:      "EJBCA API CA Certificate",
 						Sensitive: true,
 					},
 				},
@@ -136,7 +146,8 @@ func (b *ejbcaBackend) pathConfigRead(ctx context.Context, req *logical.Request,
 	return &logical.Response{
 		Data: map[string]interface{}{
 			"client_cert":                 config.ClientCert,
-			"client_key":                  config.ClientKey,
+			"client_key":                  config.ClientKey, // TODO should we return the key?
+			"ca_cert":                     config.CaCert,
 			"hostname":                    config.Hostname,
 			"default_ca":                  config.DefaultCAName,
 			"default_end_entity_profile":  config.DefaultEndEntityProfileName,
@@ -146,6 +157,8 @@ func (b *ejbcaBackend) pathConfigRead(ctx context.Context, req *logical.Request,
 }
 
 func (b *ejbcaBackend) pathConfigWrite(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	logger := b.Logger().Named("pathConfigWrite")
+
 	sc := b.makeStorageContext(ctx, req.Storage)
 	config, err := sc.Config().getConfig()
 	if err != nil {
@@ -173,6 +186,12 @@ func (b *ejbcaBackend) pathConfigWrite(ctx context.Context, req *logical.Request
 		return nil, fmt.Errorf("missing client_key in configuration")
 	}
 
+	if ClientKey, ok := data.GetOk("ca_cert"); ok {
+		config.CaCert = ClientKey.(string)
+	} else {
+		logger.Warn("ca_cert not found in request")
+	}
+
 	if hostname, ok := data.GetOk("hostname"); ok {
 		config.Hostname = hostname.(string)
 	} else if !ok && createOperation {
@@ -181,14 +200,20 @@ func (b *ejbcaBackend) pathConfigWrite(ctx context.Context, req *logical.Request
 
 	if defaultCa, ok := data.GetOk("default_ca"); ok {
 		config.DefaultCAName = defaultCa.(string)
+	} else {
+		logger.Warn("default_ca not found in request")
 	}
 
 	if defaultEndEntityProfile, ok := data.GetOk("default_end_entity_profile"); ok {
 		config.DefaultEndEntityProfileName = defaultEndEntityProfile.(string)
+	} else {
+		logger.Warn("default_end_entity_profile not found in request")
 	}
 
 	if defaultCertificateProfile, ok := data.GetOk("default_certificate_profile"); ok {
 		config.DefaultCertificateProfileName = defaultCertificateProfile.(string)
+	} else {
+		logger.Warn("default_certificate_profile not found in request")
 	}
 
 	err = sc.Config().putConfig(config)

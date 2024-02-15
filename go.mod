@@ -3,7 +3,7 @@ module github.com/Keyfactor/ejbca-vault-pki-engine
 go 1.19
 
 require (
-	github.com/Keyfactor/ejbca-go-client-sdk v0.1.4
+	github.com/Keyfactor/ejbca-go-client-sdk v0.1.5
 	github.com/hashicorp/go-hclog v1.5.0
 	github.com/hashicorp/go-secure-stdlib/parseutil v0.1.6
 	github.com/hashicorp/go-secure-stdlib/strutil v0.1.2

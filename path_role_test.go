@@ -30,6 +30,7 @@ func TestRole(t *testing.T) {
 	err := testConfigCreate(t, b, reqStorage, map[string]interface{}{
 		"client_cert":                 clientCert,
 		"client_key":                  clientKey,
+		"ca_cert":                     caCert,
 		"hostname":                    hostname,
 		"default_ca":                  _defaultCaName,
 		"default_end_entity_profile":  defaultEndEntityProfile,

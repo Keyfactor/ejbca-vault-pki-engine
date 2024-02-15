@@ -13,12 +13,15 @@ package ejbca_vault_pki_engine
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"github.com/Keyfactor/ejbca-go-client-sdk/api/ejbca"
-	"github.com/hashicorp/vault/sdk/helper/errutil"
 	"strings"
+
+	"github.com/Keyfactor/ejbca-go-client-sdk/api/ejbca"
+	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/vault/sdk/helper/errutil"
 )
 
 type ejbcaClient struct {
@@ -26,6 +29,8 @@ type ejbcaClient struct {
 }
 
 func newClient(config *ejbcaConfig) (*ejbcaClient, error) {
+	logger := hclog.New(&hclog.LoggerOptions{})
+
 	// Validate the configuration
 	if config == nil {
 		return nil, errors.New("client configuration was nil")
@@ -43,13 +48,21 @@ func newClient(config *ejbcaConfig) (*ejbcaClient, error) {
 		return nil, errors.New("client key was not defined")
 	}
 
+	logger.Debug("Creating EJBCA client")
+
 	// Construct EJBCA configuration object
 	configuration := ejbca.NewConfiguration()
 	configuration.Host = config.Hostname
+	logger.Debug(fmt.Sprintf("Setting hostname to %s", config.Hostname))
 
 	// Decode the PEM encoded client cert and key using Go standard libraries to ensure they are valid
 	certKeyBytes := []byte(config.ClientCert + config.ClientKey)
 	clientCertBlock, privKeyBlock := decodePEMBytes(certKeyBytes)
+	logger.Debug(fmt.Sprintf("Found client certificate with %d PEM blocks", len(clientCertBlock)))
+
+	if len(clientCertBlock) == 0 {
+		return nil, errors.New("client certificate not provided in ejbca configuration")
+	}
 
 	// Create a TLS certificate object
 	tlsCert, err := tls.X509KeyPair(pem.EncodeToMemory(clientCertBlock[0]), pem.EncodeToMemory(privKeyBlock))
@@ -59,6 +72,23 @@ func newClient(config *ejbcaConfig) (*ejbcaClient, error) {
 
 	// Set the TLS configuration
 	configuration.SetClientCertificate(&tlsCert)
+
+	if config.CaCert != "" {
+		caChainBlocks, _ := decodePEMBytes([]byte(config.CaCert))
+
+		var caChain []*x509.Certificate
+		for _, block := range caChainBlocks {
+			// Parse the PEM block into an x509 certificate
+			cert, err := x509.ParseCertificate(block.Bytes)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse certificate from provided CA chain: %v", err)
+			}
+
+			caChain = append(caChain, cert)
+		}
+
+		configuration.SetCaCertificates(caChain)
+	}
 
 	apiClient, err := ejbca.NewAPIClient(configuration)
 	if err != nil {
@@ -85,6 +115,7 @@ func (e *ejbcaClient) createErrorFromEjbcaErr(b *ejbcaBackend, detail string, er
 }
 
 func decodePEMBytes(buf []byte) ([]*pem.Block, *pem.Block) {
+	logger := hclog.New(&hclog.LoggerOptions{})
 	var privKey *pem.Block
 	var certificates []*pem.Block
 	var block *pem.Block
@@ -93,8 +124,10 @@ func decodePEMBytes(buf []byte) ([]*pem.Block, *pem.Block) {
 		if block == nil {
 			break
 		} else if strings.Contains(block.Type, "PRIVATE KEY") {
+			logger.Debug("Found private key in PEM")
 			privKey = block
 		} else {
+			logger.Debug("Found certificate in PEM")
 			certificates = append(certificates, block)
 		}
 	}
