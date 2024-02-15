@@ -17,6 +17,7 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
+	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/vault/sdk/helper/certutil"
 	"github.com/hashicorp/vault/sdk/helper/errutil"
 	"github.com/hashicorp/vault/sdk/logical"
@@ -351,6 +352,9 @@ func (b *caResponseBuilder) Build() (*logical.Response, error) {
 }
 
 func getCaChain(ctx context.Context, client *ejbcaClient, issuerDn string) ([]*x509.Certificate, error) {
+	logger := hclog.New(&hclog.LoggerOptions{})
+	logger.Debug("Fetching CA chain", "issuer_dn", issuerDn)
+
 	caResp, err := client.V1CaApi.GetCertificateAsPem(ctx, issuerDn).Execute()
 	if err != nil {
 		return nil, err

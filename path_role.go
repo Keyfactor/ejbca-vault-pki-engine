@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-secure-stdlib/parseutil"
 	"github.com/hashicorp/vault/sdk/framework"
 	"github.com/hashicorp/vault/sdk/helper/certutil"
@@ -958,6 +959,8 @@ serviced by this role.`,
 // ======================= Role CRUD Operations =======================
 
 func (b *ejbcaBackend) pathRoleList(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	b.Logger().Debug("Executing pathRoleList")
+
 	entries, err := req.Storage.List(ctx, "role/")
 	if err != nil {
 		return nil, err
@@ -967,6 +970,8 @@ func (b *ejbcaBackend) pathRoleList(ctx context.Context, req *logical.Request, d
 }
 
 func (b *ejbcaBackend) pathRoleRead(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	b.Logger().Debug("Executing pathRoleRead")
+
 	sc := b.makeStorageContext(ctx, req.Storage)
 
 	roleName := data.Get("name").(string)
@@ -989,6 +994,8 @@ func (b *ejbcaBackend) pathRoleRead(ctx context.Context, req *logical.Request, d
 }
 
 func (b *ejbcaBackend) pathRoleCreate(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	b.Logger().Debug("Executing pathRoleCreate")
+
 	var err error
 	name := data.Get("name").(string)
 
@@ -1099,6 +1106,8 @@ func (b *ejbcaBackend) pathRoleCreate(ctx context.Context, req *logical.Request,
 }
 
 func (b *ejbcaBackend) pathRoleDelete(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	b.Logger().Debug("Executing pathRoleDelete")
+
 	err := req.Storage.Delete(ctx, "role/"+data.Get("name").(string))
 	if err != nil {
 		return nil, err
@@ -1313,6 +1322,9 @@ func (r *roleStorageContext) getRole(name string) (*roleEntry, error) {
 }
 
 func (r *roleEntry) validate(sc *storageContext) (*logical.Response, error) {
+	logger := hclog.New(&hclog.LoggerOptions{})
+	logger.Trace("Validating role", "role", r)
+
 	resp := &logical.Response{}
 	var err error
 
