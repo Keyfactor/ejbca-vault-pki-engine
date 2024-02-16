@@ -147,14 +147,14 @@ The following paths can be used to issue and sign certificates. The `:role_name`
 
 > **Note:** The `/issue` paths generate the CSR and private key on the Vault server.
 
-| Path                                          | Issuer        | CSR required | Subject to role restriction | Help Path                                            |
-|-----------------------------------------------|---------------|--------------|-----------------------------|------------------------------------------------------|
-| sign/:role_name                               | Role selected | Yes          | Yes                         | `vault path-help ejbca/sign/example`                 | 
-| issuer/:issuer_ref/sign/:role_name            | Path selected | Yes          | Yes                         | `vault path-help ejbca/issuer/example/sign/example`  |
-| issue/:role_name                              | Role selected | No           | Yes                         | `vault path-help ejbca/issue/example`                |
-| issuer/:issuer_ref/issue/:role_name           | Path selected | No           | Yes                         | `vault path-help ejbca/issuer/example/issue/example` |
-| sign-verbatim(/:role_name)                    | default       | Yes          | No                          | `vault path-help ejbca/sign-verbatim`                |
-| issuer/:issuer_ref/sign-verbatim(/:role_name) | Path selected | Yes          | No                          | `vault path-help ejbca/issuer/example/sign-verbatim` |
+| Path                                          | Issuer        | CSR required | Subject to role restriction | Description                                                                                                                          | Help Path                                            |
+|-----------------------------------------------|---------------|--------------|-----------------------------|--------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------|
+| sign/:role_name                               | Role selected | Yes          | Yes                         | Sign a CSR using the default CA from Config and validate its attributes against the provided role.                                   | `vault path-help ejbca/sign/example`                 | 
+| issuer/:issuer_ref/sign/:role_name            | Path selected | Yes          | Yes                         | Sign a CSR using a specific CA and validate its attributes against the provided role                                                 | `vault path-help ejbca/issuer/example/sign/example`  |
+| issue/:role_name                              | Role selected | No           | Yes                         | Generate a private key configured either by the role or with the request itself, then sign the CSR using the default CA from Config. | `vault path-help ejbca/issue/example`                |
+| issuer/:issuer_ref/issue/:role_name           | Path selected | No           | Yes                         | Generate a private key configured either by the role or with the request itself, then sign the CSR using the provided CA.            | `vault path-help ejbca/issuer/example/issue/example` |
+| sign-verbatim(/:role_name)                    | default       | Yes          | No                          | Sign a CSR using the default CA and don't validate its attributes against a role.                                                    | `vault path-help ejbca/sign-verbatim`                |
+| issuer/:issuer_ref/sign-verbatim(/:role_name) | Path selected | Yes          | No                          | Sign a CSR using the specified CA and don't validate its attributes against a role.                                                  | `vault path-help ejbca/issuer/example/sign-verbatim` |
 
 The following example issues a certificate using the `example-dot-com` role:
 ```shell
