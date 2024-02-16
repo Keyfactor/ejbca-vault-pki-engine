@@ -30,6 +30,7 @@ func TestRole(t *testing.T) {
 	err := testConfigCreate(t, b, reqStorage, map[string]interface{}{
 		"client_cert":                 clientCert,
 		"client_key":                  clientKey,
+		"ca_cert":                     caCert,
 		"hostname":                    hostname,
 		"default_ca":                  _defaultCaName,
 		"default_end_entity_profile":  defaultEndEntityProfile,
@@ -146,7 +147,7 @@ func testRoleRead(t *testing.T, b logical.Backend, s logical.Storage, expected m
 
 	// Find the values in expected that are not in resp.Data
 	diff := map[string]interface{}{}
-	for k, _ := range expected {
+	for k := range expected {
 		if _, ok := resp.Data[k]; !ok {
 			diff[k] = nil
 		}
