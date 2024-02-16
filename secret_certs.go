@@ -19,11 +19,6 @@ import (
 	"github.com/hashicorp/vault/sdk/logical"
 )
 
-type ejbcaCertificate struct {
-	Crt string `json:"crt"`
-	Key string `json:"key"`
-}
-
 const SecretCertsEjbcaType = "ejbca_certificate"
 
 func secretCerts(b *ejbcaBackend) *framework.Secret {

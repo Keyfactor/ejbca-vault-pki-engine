@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-secure-stdlib/parseutil"
 	"github.com/hashicorp/vault/sdk/framework"
 	"github.com/hashicorp/vault/sdk/helper/certutil"
@@ -380,12 +379,21 @@ serviced by this role.`,
 			},
 			"end_entity_profile_name": {
 				Type:        framework.TypeString,
-				Description: `Name of the end entity profile to use for requests`,
+				Description: `The name of an End Entity Profile in EJBCA that certificates will be issued against.`,
 			},
 			"certificate_profile_name": {
 				Type:        framework.TypeString,
-				Description: `Name of the certificate profile to use for requests`,
+				Description: `The name of a Certificate Profile in EJBCA that certificates will be issued against.`,
 			},
+            "end_entity_name": {
+                Type:        framework.TypeString,
+                Description: `The name of the End Entity that will be created or used in EJBCA for certificate issuance. The value can be one of the following:
+   * cn: Uses the Common Name from the CSR's Distinguished Name.
+   * dns: Uses the first DNS Name from the CSR's Subject Alternative Names (SANs).
+   * uri: Uses the first URI from the CSR's Subject Alternative Names (SANs).
+   * ip: Uses the first IP Address from the CSR's Subject Alternative Names (SANs).
+   * Custom Value: Any other string will be directly used as the End Entity Name.`,
+            },
 			"account_binding_id": {
 				Type:        framework.TypeString,
 				Description: `Account binding ID to use for requests`,
@@ -455,6 +463,7 @@ type roleEntry struct {
 	Issuer                        string        `json:"issuer"` // Issuer is the EJBCA CA name
 	EndEntityProfileName          string        `json:"end_entity_profile_name"`
 	CertificateProfileName        string        `json:"certificate_profile_name"`
+    EndEntityName                 string        `json:"end_entity_name"`
 	AccountBindingId              string        `json:"account_binding_id"`
 }
 
@@ -918,6 +927,15 @@ serviced by this role.`,
 					Description: `The name of the EJBCA Certificate Profile to use when creating the certificate.`,
 					Default:     "",
 				},
+                "end_entity_name": {
+                    Type:        framework.TypeString,
+                    Description: `The name of the End Entity that will be created or used in EJBCA for certificate issuance. The value can be one of the following:
+       * cn: Uses the Common Name from the CSR's Distinguished Name.
+       * dns: Uses the first DNS Name from the CSR's Subject Alternative Names (SANs).
+       * uri: Uses the first URI from the CSR's Subject Alternative Names (SANs).
+       * ip: Uses the first IP Address from the CSR's Subject Alternative Names (SANs).
+       * Custom Value: Any other string will be directly used as the End Entity Name.`,
+                },
 				"account_binding_id": {
 					Type:        framework.TypeString,
 					Description: `The name of the EJBCA Account Binding to use when creating the certificate.`,
@@ -994,10 +1012,11 @@ func (b *ejbcaBackend) pathRoleRead(ctx context.Context, req *logical.Request, d
 }
 
 func (b *ejbcaBackend) pathRoleCreate(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	b.Logger().Debug("Executing pathRoleCreate")
+    logger := b.Logger().Named("pathRoleCreate")
 
 	var err error
 	name := data.Get("name").(string)
+	logger.Debug("Executing pathRoleCreate", "name", name)
 
 	entry := &roleEntry{
 		MaxTTL:                        time.Duration(data.Get("max_ttl").(int)) * time.Second,
@@ -1047,6 +1066,7 @@ func (b *ejbcaBackend) pathRoleCreate(ctx context.Context, req *logical.Request,
 		Issuer:                        data.Get("issuer_ref").(string),
 		EndEntityProfileName:          data.Get("end_entity_profile_name").(string),
 		CertificateProfileName:        data.Get("certificate_profile_name").(string),
+        EndEntityName:                 data.Get("end_entity_name").(string),
 		AccountBindingId:              data.Get("account_binding_id").(string),
 	}
 
@@ -1082,6 +1102,7 @@ func (b *ejbcaBackend) pathRoleCreate(ctx context.Context, req *logical.Request,
 		}
 	}
 
+    logger.Debug("Validating role entry before storing", "entry", entry)
 	resp, err := entry.validate(b.makeStorageContext(ctx, req.Storage))
 	if err != nil {
 		return nil, err
@@ -1322,8 +1343,8 @@ func (r *roleStorageContext) getRole(name string) (*roleEntry, error) {
 }
 
 func (r *roleEntry) validate(sc *storageContext) (*logical.Response, error) {
-	logger := hclog.New(&hclog.LoggerOptions{})
-	logger.Trace("Validating role", "role", r)
+    logger := sc.Backend.Logger().Named("roleEntry.validate")
+	logger.Debug("Validating role")
 
 	resp := &logical.Response{}
 	var err error
@@ -1364,14 +1385,21 @@ func (r *roleEntry) validate(sc *storageContext) (*logical.Response, error) {
 	// resolve it at use time. This allows values such as `default` or other
 	// user-assigned names to "float" and change over time.
 	if r.Issuer == "" {
+        logger.Trace("Issuer not set, setting to default CA name", "defaultCAName", config.DefaultCAName)
 		r.Issuer = config.DefaultCAName
 	}
 	if r.EndEntityProfileName == "" {
+        logger.Trace("EndEntityProfileName not set, setting to default EndEntityProfileName", "defaultEndEntityProfileName", config.DefaultEndEntityProfileName)
 		r.EndEntityProfileName = config.DefaultEndEntityProfileName
 	}
 	if r.CertificateProfileName == "" {
+        logger.Trace("CertificateProfileName not set, setting to default CertificateProfileName", "defaultCertificateProfileName", config.DefaultCertificateProfileName)
 		r.CertificateProfileName = config.DefaultCertificateProfileName
 	}
+    if r.EndEntityName == "" {
+        logger.Trace("EndEntityName not set, setting to default EndEntityName", "defaultEndEntityName", config.DefaultEndEntityName)
+        r.EndEntityName = config.DefaultEndEntityName
+    }
 
 	err = sc.CA().resolveIssuerReference(r.Issuer)
 	if err != nil {

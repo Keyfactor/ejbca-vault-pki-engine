@@ -25,8 +25,8 @@ var (
 	caCert                    = ""
 	hostname                  = os.Getenv("EJBCA_HOSTNAME")
 	_defaultCaName            = os.Getenv("EJBCA_DEFAULT_CA_NAME")
-	defaultEndEntityProfile   = os.Getenv("EJBCA_DEFAULT_END_ENTITY_PROFILE")
-	defaultCertificateProfile = os.Getenv("EJBCA_DEFAULT_CERTIFICATE_PROFILE")
+	defaultEndEntityProfile   = os.Getenv("EJBCA_END_ENTITY_PROFILE_NAME")
+	defaultCertificateProfile = os.Getenv("EJBCA_CERTIFICATE_PROFILE_NAME")
 )
 
 func getTestBackend(tb testing.TB) (*ejbcaBackend, logical.Storage) {
@@ -49,7 +49,7 @@ func getTestBackend(tb testing.TB) (*ejbcaBackend, logical.Storage) {
 	}
 	clientCert = string(file)
 
-	clientKeyPath := os.Getenv("EJBCA_CLIENT_CERT_KEY_PATH")
+	clientKeyPath := os.Getenv("EJBCA_CLIENT_KEY_PATH")
 	file, err = os.ReadFile(clientKeyPath)
 	if err != nil {
 		tb.Fatalf("error reading client key: %v", err)

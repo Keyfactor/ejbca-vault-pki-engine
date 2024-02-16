@@ -1,23 +1,13 @@
 # EJBCA PKI Secrets Engine for HashiCorp Vault
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/Keyfactor/ejbca-k8s-csr-signer)](https://goreportcard.com/report/github.com/Keyfactor/ejbca-k8s-csr-signer)
+[![Go Report Card](https://goreportcard.com/badge/github.com/Keyfactor/ejbca-vault-pki-engine)](https://goreportcard.com/report/github.com/Keyfactor/ejbca-vault-pki-engine)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://img.shields.io/badge/License-Apache%202.0-blue.svg)
 
-The EJBCA PKI Secrets Engine for HashiCorp Vault enables DevOps teams to request and retrieve certificates 
-from EJBCA using HashiCorp Vault, while security teams retain control over backend PKI operations.
+The EJBCA PKI Secrets Engine for HashiCorp Vault enables DevOps teams to request and retrieve certificates from EJBCA using HashiCorp Vault, while security teams retain control over backend PKI operations.
 
-The secrets engine is built on top of the [EJBCA REST API](https://doc.primekey.com/ejbca/ejbca-operations/ejbca-ca-concept-guide/protocols/ejbca-rest-interface) 
-and uses the [EJBCA Go Client SDK](https://github.com/Keyfactor/ejbca-go-client-sdk) for programmatic access.
-The EJBCA PKI Secrets Engine is a Vault plugin that replicates the built-in Vault PKI secrets engine, but processes
-requests through EJBCA instead of through Vault. The plugin was designed to be swapped for the built-in Vault PKI secrets engine
-with minimal changes to existing Vault configurations.
+The secrets engine is built on top of the [EJBCA REST API](https://doc.primekey.com/ejbca/ejbca-operations/ejbca-ca-concept-guide/protocols/ejbca-rest-interface) and uses the [EJBCA Go Client SDK](https://github.com/Keyfactor/ejbca-go-client-sdk) for programmatic access. 
 
-## Community supported
-We welcome contributions.
-
-The EJBCA PKI Secrets Engine for HashiCorp Vault is open source and community supported, meaning that there is **no SLA** applicable for these tools.
-
-###### To report a problem or suggest a new feature, use the **[Issues](../../issues)** tab. If you want to contribute actual bug fixes or proposed enhancements, see the [contribution guidelines](https://github.com/Keyfactor/ejbca-k8s-csr-signer/blob/main/CONTRIBUTING.md) and use the **[Pull requests](../../pulls)** tab.
+The EJBCA PKI Secrets Engine is a Vault plugin that replicates the built-in Vault PKI secrets engine, but processes requests through EJBCA instead of through Vault. The plugin was designed to be swapped for the built-in Vault PKI secrets engine with minimal changes to existing Vault configurations.
 
 ## EJBCA API Usage
 The EJBCA PKI Secrets Engine requires the following API endpoints:
@@ -36,7 +26,8 @@ The EJBCA PKI Secrets Engine requires the following API endpoints:
 * [HashiCorp Vault](https://www.vaultproject.io/) >= v1.11.0
 
 ## Installation
-### From Source
+<details><summary>From Source</summary>
+
 Clone the repository and build the plugin.
 ```shell
 git clone https://github.com/Keyfactor/ejbca-vault-pki-engine.git
@@ -45,7 +36,7 @@ cd ejbca-vault-pki-engine
 
 Build the plugin for your platform.
 ```shell
-go build -o ejbca-vault-pki-engine cmd/ejbca-pki/main.go
+go build -o ejbca-vault-pki-engine cmd/ejbca-pki/main.go -v
 ````
 
 Calculate the SHA256 checksum of the plugin.
@@ -53,26 +44,6 @@ Calculate the SHA256 checksum of the plugin.
 SHA256=$(sha256sum ejbca-vault-pki-engine | cut -d ' ' -f1)
 ```
 
-### From GitHub Release
-Download and extract the latest release for your platform.
-```shell
-OS=$(go env GOOS)
-ARCH=$(go env GOARCH)
-curl -L https://github.com/Keyfactor/ejbca-vault-pki-engine/releases/latest/download/ejbca-vault-pki-engine-$OS-$ARCH.tar.gz
-tar xzf ejbca-vault-pki-engine-$OS-$ARCH.tar.gz
-```
-
-Retrieve the SHA256 checksum of the plugin.
-```shell
-curl -L -o ejbca-sha256sums.txt https://github.com/Keyfactor/ejbca-vault-pki-engine/releases/latest/download/ejbca-vault-pki-engine_SHA256SUMS
-SHA256=$(grep ejbca-vault-pki-engine-$OS-$ARCH.tar.gz ejbca-sha256sums.txt | cut -d ' ' -f1)
-```
-(the goreleaser currently calculates the hash of the whole .tar.gz file. for now, use the following command to calculate the hash of the plugin binary)
-```shell
-SHA256=$(sha256sum ejbca-vault-pki-engine | cut -d ' ' -f1)
-````
-
-### Install the plugin
 Move the plugin to the Vault plugin directory.
 ```shell
 sudo mv ejbca-vault-pki-engine </path/to/vault/plugins>
@@ -87,6 +58,38 @@ Mount the secrets engine and choose a prefix for the path (recommended is `ejbca
 ```shell
 vault secrets enable -path=ejbca -plugin-name=ejbca-vault-pki-engine plugin
 ```
+</details>
+
+<details><summary>From GitHub Release</summary>
+
+Download and extract the latest release for your platform.
+```shell
+OS=$(go env GOOS)
+ARCH=$(go env GOARCH)
+curl -L https://github.com/Keyfactor/ejbca-vault-pki-engine/releases/latest/download/ejbca-vault-pki-engine-$OS-$ARCH.tar.gz
+tar xzf ejbca-vault-pki-engine-$OS-$ARCH.tar.gz
+```
+
+Calculate the SHA256 checksum of the plugin.
+```shell
+SHA256=$(sha256sum ejbca-vault-pki-engine | cut -d ' ' -f1)
+````
+
+Move the plugin to the Vault plugin directory.
+```shell
+sudo mv ejbca-vault-pki-engine </path/to/vault/plugins>
+```
+
+Register SHA256 checksum of the plugin with Vault.
+```shell
+vault write sys/plugins/catalog/secret/ejbca-vault-pki-engine sha_256=$SHA256 command="ejbca-vault-pki-engine"
+```
+
+Mount the secrets engine and choose a prefix for the path (recommended is `ejbca`).
+```shell
+vault secrets enable -path=ejbca -plugin-name=ejbca-vault-pki-engine plugin
+```
+</details>
 
 ## Configuration
 Before using the EJBCA PKI Secrets Engine, you must configure it by providing the following information:
@@ -96,16 +99,17 @@ Before using the EJBCA PKI Secrets Engine, you must configure it by providing th
 - Default CA Certificate (used as `issuer_ref` if not configured in role)
 - Default End Entity Profile (used as `end_entity_profile_name` if not configured in role)
 - Default Certificate Profile (used as `certificate_profile_name` if not configured in role)
+- Default End Entity Name - See the (configuring end entity name)[#configuring-end-entity-name] section for the possible values of this field
 
 Use the following vault command to create the `config` object:
 ```shell
 vault write ejbca/config \
-	ejbca_hostname="https://ejbca.example.com:8443/ejbca" \
-	client_cert=@/path/to/client/cert.pem \
-	client_key=@/path/to/client/key.pem \
-	ca_cert=@/path/to/ca/cert.pem \
-	end_entity_profile_name="MyEndEntityProfile" \
-	certificate_profile_name="MyCertificateProfile"
+    ejbca_hostname="https://ejbca.example.com:8443/ejbca" \
+    client_cert=@/path/to/client/cert.pem \
+    client_key=@/path/to/client/key.pem \
+    ca_cert=@/path/to/ca/cert.pem \
+    end_entity_profile_name="MyEndEntityProfile" \
+    certificate_profile_name="MyCertificateProfile"
 ```
 
 ## Roles
@@ -130,27 +134,27 @@ vault write ejbca/roles/example-dot-com \
 The EJBCA PKI Secrets Engine also supports the following additional role fields:
 - `end_entity_profile_name` - The name of the EJBCA End Entity Profile to use for certificate issuance.
 - `certificate_profile_name` - The name of the EJBCA Certificate Profile to use for certificate issuance.
+- `end_entity_name` - A value that will either be used to calculate the end entity name, or the end entity name itself. See the (configuring end entity name)[#configuring-end-entity-name] for more details.
 - `account_binding_id` - EJBCA Account Binding ID.
 
-:pushpin: **Note:** If left blank, the `end_entity_profile_name` and `certificate_profile_name` fields will default to the values configured in the `config` object.
+> **Note:** If left blank, the `end_entity_profile_name`, `certificate_profile_name`, and `end_entity_name` fields will default to the values configured in the `config` object.
 
 ## Path Overview
 Once the EJBCA PKI Secrets Engine is configured and roles are created, you can use the following paths to issue and sign certificates,
 list certificates, and revoke certificates.
 ### Issue/Sign Paths
-The following paths can be used to issue and sign certificates. The `:role_name` parameter is required for all paths except `sign-verbatim`.
-Paths that require the `:issuer_ref` parameter will use the provided name as the EJBCA CA name for certificate issuance.
+The following paths can be used to issue and sign certificates. The `:role_name` parameter is required for all paths except `sign-verbatim`. Paths that require the `:issuer_ref` parameter will use the provided name as the EJBCA CA name for certificate issuance.
 
-:pushpin: **Note:** The `/issue` paths generate the CSR and private key on the Vault server.
+> **Note:** The `/issue` paths generate the CSR and private key on the Vault server.
 
-| Path                                          | Issuer        | CSR required | Subject to role restriction |
-|-----------------------------------------------|---------------|--------------|-----------------------------|
-| sign/:role_name                               | Role selected | Yes          | Yes                         |
-| issuer/:issuer_ref/sign/:role_name            | Path selected | Yes          | Yes                         |
-| issue/:role_name                              | Role selected | No           | Yes                         |
-| issuer/:issuer_ref/issue/:role_name           | Path selected | No           | Yes                         |
-| sign-verbatim(/:role_name)                    | default       | Yes          | No                          |
-| issuer/:issuer_ref/sign-verbatim(/:role_name) | Path selected | Yes          | No                          |
+| Path                                          | Issuer        | CSR required | Subject to role restriction | Help Path                                            |
+|-----------------------------------------------|---------------|--------------|-----------------------------|------------------------------------------------------|
+| sign/:role_name                               | Role selected | Yes          | Yes                         | `vault path-help ejbca/sign/example`                 | 
+| issuer/:issuer_ref/sign/:role_name            | Path selected | Yes          | Yes                         | `vault path-help ejbca/issuer/example/sign/example`  |
+| issue/:role_name                              | Role selected | No           | Yes                         | `vault path-help ejbca/issue/example`                |
+| issuer/:issuer_ref/issue/:role_name           | Path selected | No           | Yes                         | `vault path-help ejbca/issuer/example/issue/example` |
+| sign-verbatim(/:role_name)                    | default       | Yes          | No                          | `vault path-help ejbca/sign-verbatim`                |
+| issuer/:issuer_ref/sign-verbatim(/:role_name) | Path selected | Yes          | No                          | `vault path-help ejbca/issuer/example/sign-verbatim` |
 
 The following example issues a certificate using the `example-dot-com` role:
 ```shell
@@ -161,44 +165,67 @@ vault write ejbca/issue/example-dot-com \
     account_binding_id="abc123"
 ```
 
-:pushpin: **Note:** For more information on any of the parameters used in the above example or in the table, use the `vault path-help ejbca/<path>` command.
-
 ### Revoke Paths
 The following path can be used to revoke certificates. Either the `serial_number` or `certificate` parameter is required.
 
-| Path   | Required Parameters                | Description                                                     |
-|--------|------------------------------------|-----------------------------------------------------------------|
-| revoke | serial_number _or_ certificate PEM | Revokes a certificate by serial number _or_ certificate itself. |
+| Path   | Required Parameters                | Description                                                     | Help Path                      |
+|--------|------------------------------------|-----------------------------------------------------------------|--------------------------------|
+| revoke | serial_number _or_ certificate PEM | Revokes a certificate by serial number _or_ certificate itself. | `vault path-help ejbca/revoke` |
 
-:pushpin: **Note:** The EJBCA PKI Secrets Engine cannot revoke certificates that were not issued by the EJBCA PKI Secrets Engine.
+> **Note:** The EJBCA PKI Secrets Engine cannot revoke certificates that were not issued by the EJBCA PKI Secrets Engine. That is, the certificate must exist in the Secrets Engine's backend.
 
-### Fetch Paths
-The following paths can be used to fetch CA certificates. The paths that specify a `Content-Type` cannot be consumed using
-the `vault` command, and must be consumed using the Vault HTTP API.
+### Read/List Paths
+The following paths can be used to fetch CA certificates. The paths that specify a `Content-Type` cannot be consumed using the `vault` command, and must be consumed using the Vault HTTP API. Any path that uses `ca` as its root will report the default issuer/CA configured in the Config path.
 
-| Path            | Content-Type                      | Encoding | Response Format | Whole chain? |
-|-----------------|-----------------------------------|----------|-----------------|--------------|
-| ca              | application/pkix-cert             | DER      | DER             | false        |
-| ca/pem          | application/pem-certificate-chain | PEM      | PEM             | true         |
-| cert/ca         | <none>                            | PEM      | JSON            | true         |
-| cert/ca/raw     | application/pkix-cert             | DER      | DER             | false        |
-| cert/ca/raw/pem | application/pem-certificate-chain | PEM      | PEM             | true         |
-| ca_chain        | application/pkix-cert             | PEM      | PEM             | true         |
-| cert/ca_chain   | <none>                            | PEM      | JSON            | true         |
+| Path                   | Content-Type                      | Encoding | Response Format | Whole chain? | Help Path                                  |
+|------------------------|-----------------------------------|----------|-----------------|--------------|--------------------------------------------|
+| ca                     | application/pkix-cert             | DER      | DER             | false        | `vault path-help ejbca/ca`                 |
+| ca/pem                 | application/pem-certificate-chain | PEM      | PEM             | true         | `vault path-help ejbca/ca/pem`             |
+| cert/ca                | <none>                            | PEM      | JSON            | true         | `vault path-help ejbca/cert/ca`            |
+| cert/ca/raw            | application/pkix-cert             | DER      | DER             | false        | `vault path-help ejbca/cert/ca/raw`        |
+| cert/ca/raw/pem        | application/pem-certificate-chain | PEM      | PEM             | true         | `vault path-help ejbca/cert/ca/raw/pem`    |
+| ca_chain               | application/pkix-cert             | PEM      | PEM             | true         | `vault path-help ejbca/ca_chain`           |
+| cert/ca_chain          | <none>                            | PEM      | JSON            | true         | `vault path-help ejbca/cert/ca_chain`      |
+| issuer/:issuer_ref     | <none>                            | PEM      | JSON            | true         | `vault path-help ejbca/issuer/example`     |
+| issuer/:issuer_ref/pem | application/pem-certificate-chain | PEM      | PEM             | true         | `vault path-help ejbca/issuer/example/pem` |
 
 The following paths can be used to fetch certificates.
 
-| Path             | Content-Type                       | Encoding |
-|------------------|------------------------------------|----------|
-| cert/:serial     | <none>                             | PEM      |
-| cert/:serial/raw | application/pkix-cert              | DER      |
-| cert/:serial/pem | application/pem-certificate-chain  | PEM      |
+| Path             | Content-Type                      | Encoding | Help Path                               |
+|------------------|-----------------------------------|----------|-----------------------------------------|
+| cert/:serial     | <none>                            | PEM      | `vault path-help ejbca/cert/123456`     |
+| cert/:serial/raw | application/pkix-cert             | DER      | `vault path-help ejbca/cert/123456/raw` |
+| cert/:serial/pem | application/pem-certificate-chain | PEM      | `vault path-help ejbca/cert/123456/pem` |
 
 :pushpin: **Note:** The fetch methods will never return a private key. Private keys are only returned with the `issue` methods.
 
 Serial numbers of certificates and revoked certificates can be found using the following paths.
 
-| Path          | Description                                                     |
-|---------------|-----------------------------------------------------------------|
-| certs	        | Lists all certificates issued by the EJBCA PKI Secrets Engine.  |
-| certs/revoked | Lists all certificates revoked by the EJBCA PKI Secrets Engine. |
+| Path          | Description                                                     | Help Path                             |
+|---------------|-----------------------------------------------------------------|---------------------------------------|
+| certs	        | Lists all certificates issued by the EJBCA PKI Secrets Engine.  | `vault path-help ejbca/certs`         |
+| certs/revoked | Lists all certificates revoked by the EJBCA PKI Secrets Engine. | `vault path-help ejbca/certs/revoked` |
+
+## Configuring End Entity Name
+The `default_end_entity_name` and `end_entity_name` fields in the Config and Role paths allow you to configure how the End Entity Name is selected when issuing certificates through EJBCA. This field offers flexibility by allowing you to select different components from the Certificate Signing Request (CSR) or other contextual data as the End Entity Name.
+
+### Configurable Options
+Here are the different options you can set for `default_end_entity_name` for the Config path or `end_entity_name` for the Role path:
+
+* **`cn`:** Uses the Common Name from the CSR's Distinguished Name.
+* **`dns`:** Uses the first DNS Name from the CSR's Subject Alternative Names (SANs).
+* **`uri`:** Uses the first URI from the CSR's Subject Alternative Names (SANs).
+* **`ip`:** Uses the first IP Address from the CSR's Subject Alternative Names (SANs).
+* **Custom Value:** Any other string will be directly used as the End Entity Name.
+
+### Default Behavior
+If the `end_entity_name` field is not explicitly set, the EJBCA Vault PKI Engine will attempt to determine the End Entity Name using the following default behavior:
+
+* **First, it will try to use the Common Name:** It looks at the Common Name from the CSR's Distinguished Name.
+* **If the Common Name is not available, it will use the first DNS Name:** It looks at the first DNS Name from the CSR's Subject Alternative Names (SANs).
+* **If the DNS Name is not available, it will use the first URI:** It looks at the first URI from the CSR's Subject Alternative Names (SANs).
+* **If the URI is not available, it will use the first IP Address:** It looks at the first IP Address from the CSR's Subject Alternative Names (SANs).
+* **If none of the above are available:** The certificate issuance will fail.
+
+If the Engine is unable to determine a valid End Entity Name through these steps, an error will be logged and no End Entity Name will be set.
+

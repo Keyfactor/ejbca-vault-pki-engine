@@ -69,7 +69,7 @@ func TestPathIssueSign(t *testing.T) {
 	})
 
 	t.Run("sign-verbatim", func(t *testing.T) {
-		err = testSign(t, b, reqStorage, fmt.Sprintf("sign-verbatim"))
+		err = testSign(t, b, reqStorage, "sign-verbatim")
 		assert.NoError(t, err)
 	})
 
@@ -79,7 +79,7 @@ func TestPathIssueSign(t *testing.T) {
 	})
 
 	t.Run("sign-verbatim", func(t *testing.T) {
-		err = testSign(t, b, reqStorage, fmt.Sprintf("sign-verbatim"))
+		err = testSign(t, b, reqStorage, "sign-verbatim")
 		assert.NoError(t, err)
 	})
 
@@ -245,7 +245,7 @@ func parseSubjectDN(subject string, randomizeCn bool) (pkix.Name, error) {
 			name.OrganizationalUnit = []string{value}
 		case "CN":
 			if randomizeCn {
-				value = fmt.Sprintf("%s-%s", value, generateRandomString(5))
+				name.CommonName = fmt.Sprintf("%s-%s", value, generateRandomString(5))
 			} else {
 				name.CommonName = value
 			}

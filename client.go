@@ -56,12 +56,12 @@ func newClient(config *ejbcaConfig) (*ejbcaClient, error) {
 	logger.Debug(fmt.Sprintf("Setting hostname to %s", config.Hostname))
 
 	// Decode the PEM encoded client cert and key using Go standard libraries to ensure they are valid
-	certKeyBytes := []byte(config.ClientCert + config.ClientKey)
+	certKeyBytes := []byte(config.ClientCert + "\n" + config.ClientKey)
 	clientCertBlock, privKeyBlock := decodePEMBytes(certKeyBytes)
 	logger.Debug(fmt.Sprintf("Found client certificate with %d PEM blocks", len(clientCertBlock)))
 
 	if len(clientCertBlock) == 0 {
-		return nil, errors.New("client certificate not provided in ejbca configuration")
+		return nil, errors.New("client certificate contains data but a PEM structure could not be decoded - please check the format of your client certificate and key")
 	}
 
 	// Create a TLS certificate object
@@ -99,6 +99,7 @@ func newClient(config *ejbcaConfig) (*ejbcaClient, error) {
 }
 
 func (e *ejbcaClient) createErrorFromEjbcaErr(b *ejbcaBackend, detail string, err error) error {
+    logger := b.Logger().Named("ejbcaClient.createErrorFromEjbcaErr")
 	if err == nil {
 		return nil
 	}
@@ -109,7 +110,7 @@ func (e *ejbcaClient) createErrorFromEjbcaErr(b *ejbcaBackend, detail string, er
 		errString += fmt.Sprintf(" - EJBCA API returned error %s", bodyError.Body())
 	}
 
-	b.Logger().Error(errString)
+    logger.Error("EJBCA returned an error!", "error", errString)
 
 	return errutil.InternalError{Err: errString}
 }
@@ -124,10 +125,10 @@ func decodePEMBytes(buf []byte) ([]*pem.Block, *pem.Block) {
 		if block == nil {
 			break
 		} else if strings.Contains(block.Type, "PRIVATE KEY") {
-			logger.Debug("Found private key in PEM")
+			logger.Trace("Found private key in PEM block")
 			privKey = block
 		} else {
-			logger.Debug("Found certificate in PEM")
+			logger.Trace("Found certificate in PEM block")
 			certificates = append(certificates, block)
 		}
 	}

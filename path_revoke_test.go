@@ -78,7 +78,7 @@ func TestPathRevoke(t *testing.T) {
 	t.Run("revoke", func(t *testing.T) {
 		resp, err = b.HandleRequest(context.Background(), &logical.Request{
 			Operation: logical.UpdateOperation,
-			Path:      fmt.Sprintf("revoke"),
+			Path:      "revoke",
 			Storage:   reqStorage,
 			Data: map[string]interface{}{
 				"serial_number": serialNumber,

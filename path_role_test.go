@@ -147,7 +147,7 @@ func testRoleRead(t *testing.T, b logical.Backend, s logical.Storage, expected m
 
 	// Find the values in expected that are not in resp.Data
 	diff := map[string]interface{}{}
-	for k, _ := range expected {
+	for k := range expected {
 		if _, ok := resp.Data[k]; !ok {
 			diff[k] = nil
 		}
