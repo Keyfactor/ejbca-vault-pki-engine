@@ -16,7 +16,6 @@ import (
 	"math/rand"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/hashicorp/vault/sdk/framework"
 	"github.com/hashicorp/vault/sdk/logical"
@@ -93,7 +92,11 @@ func (sc *storageContext) getClient() (*ejbcaClient, error) {
 	unlockFunc := sc.Backend.lock.RUnlock
 	defer func() { unlockFunc() }()
 
+    logger := sc.Backend.Logger().Named("storageClient.getClient")
+    logger.Debug("Getting EJBCA client")
+
 	if sc.Backend.client != nil {
+        logger.Trace("Returning cached client from Backend")
 		return sc.Backend.client, nil
 	}
 
@@ -110,6 +113,7 @@ func (sc *storageContext) getClient() (*ejbcaClient, error) {
 		config = new(ejbcaConfig)
 	}
 
+    logger.Trace("Creating new EJBCA client")
 	sc.Backend.client, err = newClient(config)
 	if err != nil {
 		return nil, err
@@ -126,7 +130,6 @@ with the "config/" endpoints.
 `
 
 func generateRandomString(length int) string {
-	rand.Seed(time.Now().UnixNano())
 	letters := []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 	b := make([]rune, length)
 	for i := range b {
