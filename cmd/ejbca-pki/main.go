@@ -22,6 +22,7 @@ import (
 )
 
 func main() {
+	logger := hclog.New(&hclog.LoggerOptions{})
 	apiClientMeta := &api.PluginAPIClientMeta{}
 	flags := apiClientMeta.FlagSet()
 	err := flags.Parse(os.Args[1:])
@@ -32,13 +33,13 @@ func main() {
 	tlsConfig := apiClientMeta.GetTLSConfig()
 	tlsProviderFunc := api.VaultPluginTLSProvider(tlsConfig)
 
+	logger.Info("Starting EJBCA PKI Engine plugin")
+
 	err = plugin.Serve(&plugin.ServeOpts{
 		BackendFactoryFunc: ejbca.Factory,
 		TLSProviderFunc:    tlsProviderFunc,
 	})
 	if err != nil {
-		logger := hclog.New(&hclog.LoggerOptions{})
-
 		logger.Error("plugin shutting down", "error", err)
 		os.Exit(1)
 	}
