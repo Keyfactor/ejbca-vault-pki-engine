@@ -21,16 +21,21 @@ import (
 
 const (
 	configStoragePath = "config"
-	defaultCaName     = "ManagementCA"
+)
+
+var (
+    defaultCaName = "ManagementCA"
 )
 
 type ejbcaConfig struct {
 	Hostname                      string `json:"hostname"`
 	ClientCert                    string `json:"client_cert"`
 	ClientKey                     string `json:"client_key"`
+	CaCert                        string `json:"ca_cert"`
 	DefaultCAName                 string `json:"default_ca"`
 	DefaultEndEntityProfileName   string `json:"default_end_entity_profile"`
 	DefaultCertificateProfileName string `json:"default_certificate_profile"`
+    DefaultEndEntityName          string `json:"default_end_entity_name"`
 }
 
 func pathConfig(b *ejbcaBackend) []*framework.Path {
@@ -65,6 +70,15 @@ func pathConfig(b *ejbcaBackend) []*framework.Path {
 						Sensitive: true,
 					},
 				},
+				"ca_cert": {
+					Type:        framework.TypeString,
+					Description: "EJBCA API CA certificate as a X.509 v3 PEM encoded certificate.",
+					Required:    true,
+					DisplayAttrs: &framework.DisplayAttributes{
+						Name:      "EJBCA API CA Certificate",
+						Sensitive: true,
+					},
+				},
 				"default_ca": {
 					Type:        framework.TypeString,
 					Description: "The name of the default CA to use for issuing certificates.",
@@ -95,6 +109,21 @@ func pathConfig(b *ejbcaBackend) []*framework.Path {
 						Sensitive: false,
 					},
 				},
+                "default_end_endity_profile": {
+                    Type:        framework.TypeString,
+                    Description: `The name of the End Entity that will be created or used in EJBCA for certificate issuance. The value can be one of the following:
+   * cn: Uses the Common Name from the CSR's Distinguished Name.
+   * dns: Uses the first DNS Name from the CSR's Subject Alternative Names (SANs).
+   * uri: Uses the first URI from the CSR's Subject Alternative Names (SANs).
+   * ip: Uses the first IP Address from the CSR's Subject Alternative Names (SANs).
+   * Custom Value: Any other string will be directly used as the End Entity Name.`,
+                    Required:    false,
+                    Default:     "",
+                    DisplayAttrs: &framework.DisplayAttributes{
+                        Name:      "Default End Entity Profile",
+                        Sensitive: false,
+                    },
+                },
 			},
 			Operations: map[logical.Operation]framework.OperationHandler{
 				logical.ReadOperation: &framework.PathOperation{
@@ -133,10 +162,15 @@ func (b *ejbcaBackend) pathConfigRead(ctx context.Context, req *logical.Request,
 		return nil, err
 	}
 
+    if config == nil {
+        return nil, fmt.Errorf("config not found")
+    }
+
 	return &logical.Response{
 		Data: map[string]interface{}{
 			"client_cert":                 config.ClientCert,
-			"client_key":                  config.ClientKey,
+			"client_key":                  "REDACTED", 
+			"ca_cert":                     config.CaCert,
 			"hostname":                    config.Hostname,
 			"default_ca":                  config.DefaultCAName,
 			"default_end_entity_profile":  config.DefaultEndEntityProfileName,
@@ -146,6 +180,8 @@ func (b *ejbcaBackend) pathConfigRead(ctx context.Context, req *logical.Request,
 }
 
 func (b *ejbcaBackend) pathConfigWrite(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	logger := b.Logger().Named("pathConfigWrite")
+
 	sc := b.makeStorageContext(ctx, req.Storage)
 	config, err := sc.Config().getConfig()
 	if err != nil {
@@ -155,46 +191,80 @@ func (b *ejbcaBackend) pathConfigWrite(ctx context.Context, req *logical.Request
 	createOperation := req.Operation == logical.CreateOperation
 
 	if config == nil {
+        // If the operation is not a create operation and the config was not found in memory, return an error
 		if !createOperation {
 			return nil, errors.New("config not found during update operation")
 		}
+
+        logger.Trace("EJBCA Config not found in storage, creating new")
 		config = new(ejbcaConfig)
 	}
 
 	if ClientCert, ok := data.GetOk("client_cert"); ok {
+        logger.Trace("Client certificate present")
 		config.ClientCert = ClientCert.(string)
 	} else if !ok && createOperation {
 		return nil, fmt.Errorf("missing client_cert in configuration")
 	}
 
 	if ClientKey, ok := data.GetOk("client_key"); ok {
+        logger.Trace("Client key present")
 		config.ClientKey = ClientKey.(string)
 	} else if !ok && createOperation {
 		return nil, fmt.Errorf("missing client_key in configuration")
 	}
 
+	if ClientKey, ok := data.GetOk("ca_cert"); ok {
+        logger.Trace("CA certificate present")
+		config.CaCert = ClientKey.(string)
+	} else {
+		logger.Warn("ca_cert not found in request")
+	}
+
 	if hostname, ok := data.GetOk("hostname"); ok {
+        logger.Trace("Hostname present")
 		config.Hostname = hostname.(string)
 	} else if !ok && createOperation {
 		return nil, fmt.Errorf("missing hostname in configuration")
 	}
 
 	if defaultCa, ok := data.GetOk("default_ca"); ok {
+        logger.Trace("Default CA present")
 		config.DefaultCAName = defaultCa.(string)
+        // We can safely set the global defaultCaName since only one instance of Config ever exists in the backend
+        logger.Trace("Globally setting default CA name", "default_ca", defaultCa.(string))
+        defaultCaName = defaultCa.(string)
+	} else {
+		logger.Warn("default_ca not found in request")
 	}
 
 	if defaultEndEntityProfile, ok := data.GetOk("default_end_entity_profile"); ok {
+        logger.Trace("Default End Entity Profile present")
 		config.DefaultEndEntityProfileName = defaultEndEntityProfile.(string)
+	} else {
+		logger.Warn("default_end_entity_profile not found in request")
 	}
 
 	if defaultCertificateProfile, ok := data.GetOk("default_certificate_profile"); ok {
+        logger.Trace("Default Certificate Profile present")
 		config.DefaultCertificateProfileName = defaultCertificateProfile.(string)
+	} else {
+		logger.Warn("default_certificate_profile not found in request")
 	}
+
+    if defaultEndEntityName, ok := data.GetOk("default_end_entity_name"); ok {
+        logger.Trace("Default End Entity Name present")
+        config.DefaultEndEntityName = defaultEndEntityName.(string)
+    } else {
+        logger.Warn("default_end_entity_name not found in request")
+    }
 
 	err = sc.Config().putConfig(config)
 	if err != nil {
 		return nil, err
 	}
+
+    logger.Debug("Finished processing pathConfigWrite")
 
 	b.reset()
 

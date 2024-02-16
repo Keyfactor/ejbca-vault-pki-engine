@@ -22,10 +22,11 @@ import (
 var (
 	clientCert                = ""
 	clientKey                 = ""
+	caCert                    = ""
 	hostname                  = os.Getenv("EJBCA_HOSTNAME")
-	_defaultCaName            = os.Getenv("EJBCA_DEFAULT_CA_NAME")
-	defaultEndEntityProfile   = os.Getenv("EJBCA_DEFAULT_END_ENTITY_PROFILE")
-	defaultCertificateProfile = os.Getenv("EJBCA_DEFAULT_CERTIFICATE_PROFILE")
+	_defaultCaName            = os.Getenv("EJBCA_CA_NAME")
+	defaultEndEntityProfile   = os.Getenv("EJBCA_END_ENTITY_PROFILE_NAME")
+	defaultCertificateProfile = os.Getenv("EJBCA_CERTIFICATE_PROFILE_NAME")
 )
 
 func getTestBackend(tb testing.TB) (*ejbcaBackend, logical.Storage) {
@@ -38,22 +39,29 @@ func getTestBackend(tb testing.TB) (*ejbcaBackend, logical.Storage) {
 
 	b, err := Factory(context.Background(), config)
 	if err != nil {
-		tb.Fatal(err)
+		tb.Fatalf("error creating backend: %v", err)
 	}
 
 	clientCertPath := os.Getenv("EJBCA_CLIENT_CERT_PATH")
 	file, err := os.ReadFile(clientCertPath)
 	if err != nil {
-		tb.Fatal(err)
+		tb.Fatalf("error reading client cert: %v", err)
 	}
 	clientCert = string(file)
 
-	clientKeyPath := os.Getenv("EJBCA_CLIENT_CERT_KEY_PATH")
+	clientKeyPath := os.Getenv("EJBCA_CLIENT_KEY_PATH")
 	file, err = os.ReadFile(clientKeyPath)
 	if err != nil {
-		tb.Fatal(err)
+		tb.Fatalf("error reading client key: %v", err)
 	}
 	clientKey = string(file)
+
+	caCertPath := os.Getenv("EJBCA_CA_CERT_PATH")
+	file, err = os.ReadFile(caCertPath)
+	if err != nil {
+		tb.Fatalf("error reading ca cert: %v", err)
+	}
+	caCert = string(file)
 
 	return b.(*ejbcaBackend), config.StorageView
 }
