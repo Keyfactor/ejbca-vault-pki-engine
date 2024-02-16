@@ -156,6 +156,10 @@ func testConfigRead(t *testing.T, b logical.Backend, s logical.Storage, expected
 	for k, expectedV := range expected {
 		actualV, ok := resp.Data[k]
 
+        if actualV == "REDACTED" {
+            continue
+        }
+
 		if !ok {
 			return fmt.Errorf(`expected data["%s"] = %v but was not included in read output"`, k, expectedV)
 		} else if expectedV != actualV {

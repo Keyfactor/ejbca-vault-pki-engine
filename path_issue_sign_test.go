@@ -137,7 +137,7 @@ func testIssue(t *testing.T, b logical.Backend, s logical.Storage, path string) 
 		Path:      path,
 		Storage:   s,
 		Data: map[string]interface{}{
-			//	"common_name": cn,
+            "common_name": "example.com",
 			"alt_names": "example.com",
 		},
 	})
