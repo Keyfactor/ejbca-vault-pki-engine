@@ -21,7 +21,10 @@ import (
 
 const (
 	configStoragePath = "config"
-	defaultCaName     = "ManagementCA"
+)
+
+var (
+    defaultCaName = "ManagementCA"
 )
 
 type ejbcaConfig struct {
@@ -228,6 +231,9 @@ func (b *ejbcaBackend) pathConfigWrite(ctx context.Context, req *logical.Request
 	if defaultCa, ok := data.GetOk("default_ca"); ok {
         logger.Trace("Default CA present")
 		config.DefaultCAName = defaultCa.(string)
+        // We can safely set the global defaultCaName since only one instance of Config ever exists in the backend
+        logger.Trace("Globally setting default CA name", "default_ca", defaultCa.(string))
+        defaultCaName = defaultCa.(string)
 	} else {
 		logger.Warn("default_ca not found in request")
 	}
