@@ -1,5 +1,5 @@
 /*
-Copyright 2023 Keyfactor
+Copyright 2024 Keyfactor
 Licensed under the Apache License, Version 2.0 (the "License"); you may
 not use this file except in compliance with the License.  You may obtain a
 copy of the License at http://www.apache.org/licenses/LICENSE-2.0.  Unless
@@ -313,28 +313,35 @@ func pathFetch(b *ejbcaBackend) []*framework.Path {
 }
 
 func (b *ejbcaBackend) pathFetchCertList(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+    logger := b.Logger().Named("ejbcaBackend.pathFetchCertList")
 	sc := b.makeStorageContext(ctx, req.Storage)
 
+    logger.Debug("Fetching cert list")
 	certs, err := sc.Cert().listCerts()
 	if err != nil {
 		return nil, err
 	}
 
+    logger.Trace("Returning cert list", "len(certs)", len(certs))
 	return logical.ListResponse(certs), nil
 }
 
 func (b *ejbcaBackend) pathFetchRevokedCertList(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+    logger := b.Logger().Named("ejbcaBackend.pathFetchRevokedCertList")
 	sc := b.makeStorageContext(ctx, req.Storage)
 
+    logger.Debug("Fetching revoked cert list")
 	revokedCerts, err := sc.Cert().listRevokedCerts()
 	if err != nil {
 		return nil, err
 	}
 
+    logger.Trace("Returning revoked cert list", "len(revokedCerts)", len(revokedCerts))
 	return logical.ListResponse(revokedCerts), nil
 }
 
 func (b *ejbcaBackend) pathFetchCert(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+    logger := b.Logger().Named("ejbcaBackend.pathFetchCert")
 	sc := b.makeStorageContext(ctx, req.Storage)
 
 	serial := data.Get("serial").(string)
@@ -346,6 +353,7 @@ func (b *ejbcaBackend) pathFetchCert(ctx context.Context, req *logical.Request, 
 		return b.pathFetchCA(ctx, req, data)
 	}
 
+    logger.Debug("Fetching certificate bundle by serial number", "serial", serial)
 	entry, err := sc.Cert().fetchCertBundleBySerial(serial)
 	if err != nil {
 		switch err.(type) {
@@ -387,6 +395,7 @@ func (b *ejbcaBackend) pathFetchCert(ctx context.Context, req *logical.Request, 
 		return nil, err
 	}
 
+    logger.Trace("Constructing certificate response", "serial", serial)
 	response.Data["certificate"] = bundle.Certificate
 	response.Data["revocation_time"] = revocationTime
 	response.Data["revocation_time_rfc3339"] = revocationTimeRfc3339
@@ -396,6 +405,7 @@ func (b *ejbcaBackend) pathFetchCert(ctx context.Context, req *logical.Request, 
 }
 
 func (b *ejbcaBackend) pathFetchCertRaw(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+    logger := b.Logger().Named("ejbcaBackend.pathFetchCertRaw")
 	response := &logical.Response{Data: map[string]interface{}{}}
 	response.Data[logical.HTTPRawBody] = []byte{}
 	response.Data[logical.HTTPStatusCode] = http.StatusNoContent
@@ -411,6 +421,7 @@ func (b *ejbcaBackend) pathFetchCertRaw(ctx context.Context, req *logical.Reques
 		return b.pathFetchCA(ctx, req, data)
 	}
 
+    logger.Debug("Fetching (raw) certificate bundle by serial number", "serial", serial)
 	entry, err := sc.Cert().fetchCertBundleBySerial(serial)
 	if err != nil {
 		return response, nil
@@ -426,6 +437,7 @@ func (b *ejbcaBackend) pathFetchCertRaw(ctx context.Context, req *logical.Reques
 	var certificate []byte
 
 	if isPem {
+        logger.Trace("Encoding certificate as PEM")
 		certificate = pem.EncodeToMemory(&pem.Block{
 			Type:  "CERTIFICATE",
 			Bytes: entry.CertificateBytes,
@@ -433,12 +445,13 @@ func (b *ejbcaBackend) pathFetchCertRaw(ctx context.Context, req *logical.Reques
 
 		contentType = "application/pem-certificate-chain"
 	} else {
+        logger.Trace("Encoding certificate as DER")
 		contentType = "application/pkix-cert"
 		certificate = []byte(base64.StdEncoding.EncodeToString(entry.CertificateBytes))
 	}
 
+    logger.Trace("Constructing certificate response", "serial", serial)
 	certificate = []byte(strings.TrimSpace(string(certificate)))
-
 	response.Data[logical.HTTPContentType] = contentType
 	response.Data[logical.HTTPRawBody] = certificate
 	response.Data[logical.HTTPStatusCode] = http.StatusOK
@@ -447,6 +460,7 @@ func (b *ejbcaBackend) pathFetchCertRaw(ctx context.Context, req *logical.Reques
 }
 
 func (b *ejbcaBackend) pathFetchCA(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+    b.Logger().Named("ejbcaBackend.pathFetchCA").Debug("Fetching CA")
 	sc := b.makeStorageContext(ctx, req.Storage)
 
 	builder := caResponseBuilder{}
@@ -454,6 +468,7 @@ func (b *ejbcaBackend) pathFetchCA(ctx context.Context, req *logical.Request, da
 }
 
 func (b *ejbcaBackend) pathFetchIssuer(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+    b.Logger().Named("ejbcaBackend.pathFetchIssuer").Debug("Fetching issuer")
 	sc := b.makeStorageContext(ctx, req.Storage)
 
 	issuerName := strings.TrimSpace(data.Get(issuerRefParam).(string))

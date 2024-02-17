@@ -1,5 +1,5 @@
 /*
-Copyright 2023 Keyfactor
+Copyright 2024 Keyfactor
 Licensed under the Apache License, Version 2.0 (the "License"); you may
 not use this file except in compliance with the License.  You may obtain a
 copy of the License at http://www.apache.org/licenses/LICENSE-2.0.  Unless
@@ -80,6 +80,7 @@ signed by an issuer in this mount.`,
 }
 
 func (b *ejbcaBackend) revokeCertificate(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+    logger := b.Logger().Named("ejbcaBackend.revokeCertificate")
 	sc := b.makeStorageContext(ctx, req.Storage)
 
 	serial, serialPresent := data.GetOk("serial_number")
@@ -91,6 +92,7 @@ func (b *ejbcaBackend) revokeCertificate(ctx context.Context, req *logical.Reque
 	}
 
 	if certPresent {
+        logger.Trace("Certificate present with request, serializing as PEM")
 		cert, err := serializePemCert(certificate.(string))
 		if err != nil {
 			return nil, err
@@ -99,6 +101,7 @@ func (b *ejbcaBackend) revokeCertificate(ctx context.Context, req *logical.Reque
 		serial = cert.SerialNumber.String()
 	}
 
+    logger.Debug("Revoking certificate", "serial", serial, "certPresent", certPresent)
 	return revokeCert(sc, serial.(string))
 }
 

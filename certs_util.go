@@ -1,5 +1,5 @@
 /*
-Copyright 2023 Keyfactor
+Copyright 2024 Keyfactor
 Licensed under the Apache License, Version 2.0 (the "License"); you may
 not use this file except in compliance with the License.  You may obtain a
 copy of the License at http://www.apache.org/licenses/LICENSE-2.0.  Unless
@@ -42,7 +42,9 @@ var (
 )
 
 func revokeCert(sc *storageContext, serialNumber string) (*logical.Response, error) {
-	// Revoke the certificate
+    logger := sc.Backend.Logger().Named("revokeCert")
+    logger.Info("revoking certificate with serial number " + serialNumber)
+
 	client, err := sc.getClient()
 	if err != nil {
 		return nil, err
@@ -56,12 +58,13 @@ func revokeCert(sc *storageContext, serialNumber string) (*logical.Response, err
 
 	renormSerialNumber := strings.ReplaceAll(denormalizeSerial(serialNumber), ":", "")
 
+    logger.Debug("Calling EJBCA to revoke certificate with serial number " + renormSerialNumber)
 	execute, _, err := client.V1CertificateApi.RevokeCertificate(sc.Context, parsedBundle.Certificate.Issuer.String(), renormSerialNumber).Reason("CESSATION_OF_OPERATION").Execute()
 	if err != nil {
 		return nil, client.createErrorFromEjbcaErr(sc.Backend, "failed to revoke certificate with serial number "+serialNumber, err)
 	}
 
-	sc.Backend.Logger().Info("revoked certificate with serial number " + *execute.SerialNumber)
+    logger.Debug("Certificate with serial number " + renormSerialNumber + " revoked successfully")
 
 	//remove the certificate from vault.
 	err = sc.Cert().deleteCert(serialNumber)
@@ -74,6 +77,7 @@ func revokeCert(sc *storageContext, serialNumber string) (*logical.Response, err
 		return nil, err
 	}
 
+    logger.Trace("Creating revoked certificate entry")
 	revokedEntry := &revokedCertEntry{
 		Certificate:       bundle.Certificate,
 		SerialNumber:      bundle.SerialNumber,
@@ -100,9 +104,6 @@ func revokeCert(sc *storageContext, serialNumber string) (*logical.Response, err
 type issueSignResponseBuilder struct {
 	storageContext *storageContext
 	helper         *issueSignHelper
-
-	privateKeyType string
-	privateKey     certutil.PrivateKeyType
 }
 
 func (b *issueSignResponseBuilder) Config(sc *storageContext, path string, data *framework.FieldData) *issueSignResponseBuilder {
@@ -117,17 +118,23 @@ func (b *issueSignResponseBuilder) Config(sc *storageContext, path string, data 
 // IssueCertificate creates a new certificate and private key according to the role configuration
 // and signs it using the configured CA.
 func (b *issueSignResponseBuilder) IssueCertificate() (*logical.Response, error) {
+    logger := b.storageContext.Backend.Logger().Named("issueSignResponseBuilder.IssueCertificate")
+    logger.Debug("Issuing certificate")
+
+    logger.Trace("Setting role for certificate issuance")
 	err := b.helper.SetRole()
 	if err != nil {
 		return nil, err
 	}
 
 	// Issue methods create the private key and CSR according to the role configuration
+    logger.Trace("Creating CSR")
 	csr, err := b.helper.CreateCsr()
 	if err != nil {
 		return nil, err
 	}
 
+    logger.Trace("Signing CSR")
 	csrRestResponse, err := b.signCsr(csr)
 	if err != nil {
 		return nil, err
@@ -138,16 +145,22 @@ func (b *issueSignResponseBuilder) IssueCertificate() (*logical.Response, error)
 
 // SignCertificate signs the provided CSR using the configured CA.
 func (b *issueSignResponseBuilder) SignCertificate() (*logical.Response, error) {
+    logger := b.storageContext.Backend.Logger().Named("issueSignResponseBuilder.SignCertificate")
+    logger.Debug("Signing certificate")
+
+    logger.Trace("Setting role for certificate signing")
 	err := b.helper.SetRole()
 	if err != nil {
 		return nil, err
 	}
 
+    logger.Trace("Getting CSR")
 	csr, err := b.helper.GetCsr()
 	if err != nil {
 		return nil, err
 	}
 
+    logger.Trace("Signing CSR")
 	csrRestResponse, err := b.signCsr(csr)
 	if err != nil {
 		return nil, err
@@ -158,13 +171,14 @@ func (b *issueSignResponseBuilder) SignCertificate() (*logical.Response, error) 
 
 // signCsr signs the provided CSR using the EJBCA Go Client SDK library.
 func (b *issueSignResponseBuilder) signCsr(csr *x509.CertificateRequest) (*ejbca.CertificateRestResponse, error) {
-	endEntityName := "vault_engine-" + generateRandomString(16)
+    logger := b.storageContext.Backend.Logger().Named("issueSignResponseBuilder.signCsr")
+    logger.Debug("Signing CSR")
+
 	endEntityPassword := generateRandomString(16)
 
-	enrollConfig := ejbca.EnrollCertificateRestRequest{
-		Username: &endEntityName,
-		Password: &endEntityPassword,
-	}
+	enrollConfig := ejbca.EnrollCertificateRestRequest{}
+    enrollConfig.SetUsername(b.helper.getEndEntityName(csr))
+    enrollConfig.SetPassword(endEntityPassword)
 
 	// Configure the request using local state and the CSR
 	enrollConfig.SetCertificateRequest(deserializeCsr(csr))
@@ -174,6 +188,12 @@ func (b *issueSignResponseBuilder) signCsr(csr *x509.CertificateRequest) (*ejbca
 	enrollConfig.SetIncludeChain(b.helper.includeChain())
 	enrollConfig.SetAccountBindingId(b.helper.getAccountBindingId())
 
+    logger.Trace("EJBCA PKCS#10 Request CA name", "caName", b.helper.getCaName())
+    logger.Trace("EJBCA PKCS#10 Request certificate profile name", "certificateProfileName", b.helper.getCertificateProfileName())
+    logger.Trace("EJBCA PKCS#10 Request end entity profile name", "endEntityProfileName", b.helper.getEndEntityProfileName())
+    logger.Trace("EJBCA PKCS#10 Request include chain", "includeChain", b.helper.includeChain())
+    logger.Trace("EJBCA PKCS#10 Request account binding ID", "accountBindingId", b.helper.getAccountBindingId())
+
 	// Retrieve the EJBCA client from the storage context
 	client, err := b.storageContext.getClient()
 	if err != nil {
@@ -181,6 +201,7 @@ func (b *issueSignResponseBuilder) signCsr(csr *x509.CertificateRequest) (*ejbca
 	}
 
 	// Send the CSR to EJBCA to be signed
+    logger.Trace("Enrolling certificate with EJBCA using PKCS#10 request")
 	enrollResponse, _, err := client.V1CertificateApi.EnrollPkcs10Certificate(b.storageContext.Context).EnrollCertificateRestRequest(enrollConfig).Execute()
 	if err != nil {
 		return nil, client.createErrorFromEjbcaErr(b.storageContext.Backend, "error enrolling certificate with EJBCA. verify that the certificate profile name, end entity profile name, and certificate authority name are appropriate for the certificate request.", err)
@@ -217,12 +238,17 @@ func (i *issueSignHelper) Init(sc *storageContext, path string, data *framework.
 }
 
 func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.CertificateRestResponse) (*logical.Response, error) {
+    logger := i.storageContext.Backend.Logger().Named("issueSignHelper.SerializeCertificateResponse")
+    logger.Debug("Serializing certificate response")
+
 	data := map[string]interface{}{}
 	var err error
 
 	var certBytes []byte
 
 	if enrollResponse.GetResponseFormat() == "PEM" {
+        logger.Trace("EJBCA returned certificate in PEM format - serializing")
+          
 		// Extract the certificate from the PEM string
 		block, _ := pem.Decode([]byte(enrollResponse.GetCertificate()))
 		if block == nil {
@@ -230,6 +256,8 @@ func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.Cer
 		}
 		certBytes = block.Bytes
 	} else if enrollResponse.GetResponseFormat() == "DER" {
+        logger.Trace("EJBCA returned certificate in DER format - serializing")
+
 		// Depending on how the EJBCA API was called, the certificate will either be single b64 encoded or double b64 encoded
 		// Try to decode the certificate twice, but don't exit if we fail here. The certificate is decoded later which
 		// will give more insight into the failure.
@@ -251,6 +279,7 @@ func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.Cer
 		return nil, err
 	}
 
+    logger.Trace("Fetching CA bundle from storage to include in response")
 	caParsedBundle, err := i.storageContext.CA().fetchCaBundle(i.getCaName())
 	if err != nil {
 		return nil, err
@@ -266,6 +295,8 @@ func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.Cer
 	if err != nil {
 		return nil, err
 	}
+
+    logger.Trace("Populating parsed cert bundle to response data")
 
 	data["expiration"] = cert.NotAfter.Unix()
 	data["serial_number"] = certBundle.SerialNumber
@@ -293,6 +324,7 @@ func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.Cer
 
 	// If we created the CSR, we need to return the private key
 	if !i.isCsrEnroll() {
+        logger.Trace("Private key generated by EJBCA PKI engine - serializing", "privateKeyType", i.privateKeyHelper.GetPrivateKeyType())
 		data["private_key_type"] = i.privateKeyHelper.GetPrivateKeyType()
 		switch i.getPrivateKeyFormat() {
 		case "pem":
@@ -326,7 +358,7 @@ func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.Cer
 			map[string]interface{}{
 				"serial_number": certBundle.SerialNumber,
 			})
-		resp.Secret.TTL = cert.NotAfter.Sub(time.Now())
+		resp.Secret.TTL = time.Until(cert.NotAfter)
 	}
 
 	if !i.role.NoStore {
@@ -348,11 +380,14 @@ func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.Cer
 }
 
 func (i *issueSignHelper) SetRole() error {
+    logger := i.storageContext.Backend.Logger().Named("issueSignHelper.SetRole")
+    logger.Debug("Setting role")
+
 	var err error
 	roleRequired := true
 
 	if i.isSignVerbatim() {
-		roleRequired = false
+        roleRequired = false
 	}
 
 	var roleName string
@@ -361,7 +396,7 @@ func (i *issueSignHelper) SetRole() error {
 		roleName = r.(string)
 	}
 
-	// Get the role
+    logger.Trace("Fetching role from storage", "roleName", roleName)
 	role, err := i.storageContext.Role().getRole(roleName)
 	if err != nil {
 		return err
@@ -371,6 +406,7 @@ func (i *issueSignHelper) SetRole() error {
 	}
 
 	if i.isSignVerbatim() {
+	    logger.Trace("Sign verbatim - Won't validate CSR against role")
 		role = &roleEntry{}
 		role.AllowLocalhost = true
 		role.AllowAnyName = true
@@ -408,12 +444,17 @@ func (i *issueSignHelper) isSignVerbatim() bool {
 	// - sign-verbatim(/:role_name)
 	// - issuer/:issuer_ref/sign-verbatim(/:role_name)
 
-	return strings.HasPrefix(i.path, "sign-verbatim") || (strings.HasPrefix(i.path, "issuer/") && strings.Contains(i.path, "/sign-verbatim"))
+    isSignVerbatim := strings.HasPrefix(i.path, "sign-verbatim") || (strings.HasPrefix(i.path, "issuer/") && strings.Contains(i.path, "/sign-verbatim"))
+    i.storageContext.Backend.Logger().Named("issueSignHelper.isSignVerbatim").Debug("Checking if path is sign verbatim", "isSignVerbatim", isSignVerbatim)
+    return isSignVerbatim
 }
 
 func (i *issueSignHelper) getCaName() string {
+    logger := i.storageContext.Backend.Logger().Named("issueSignHelper.getCaName")
+
 	if strings.HasPrefix(i.path, "sign-verbatim") || strings.HasPrefix(i.path, "sign/") || strings.HasPrefix(i.path, "issue/") {
-		return i.role.Issuer
+	    logger.Trace("Using CA name (issuer) from role", "caName", i.role.Issuer)
+        return i.role.Issuer
 	}
 
 	// If the path is:
@@ -427,6 +468,7 @@ func (i *issueSignHelper) getCaName() string {
 			return ""
 		}
 
+        logger.Trace("Using CA name (issuer) from path", "caName", issuer.(string))
 		return issuer.(string)
 	}
 
@@ -454,9 +496,11 @@ func (i *issueSignHelper) isCsrEnroll() bool {
 	if strings.HasPrefix(i.path, "sign/") ||
 		(strings.HasPrefix(i.path, "issuer/") && strings.Contains(i.path, "sign/")) ||
 		strings.HasPrefix(i.path, "sign-verbatim") {
-		return true
+            i.storageContext.Backend.Logger().Named("issueSignHelper.isCsrEnroll").Trace("Determined path from request requires CSR enrollment (client-generated keys)")
+            return true
 	}
 
+    i.storageContext.Backend.Logger().Named("issueSignHelper.isCsrEnroll").Trace("Determined path from request does not require CSR enrollment (EJBCA PKI engine will generate keys)")
 	return false
 }
 
@@ -466,6 +510,63 @@ func (i *issueSignHelper) getCertificateProfileName() string {
 
 func (i *issueSignHelper) getEndEntityProfileName() string {
 	return i.role.EndEntityProfileName
+}
+
+// getEndEntityName determines the EJBCA end entity name based on the CSR and the defaultEndEntityName option.
+func (i *issueSignHelper) getEndEntityName(csr *x509.CertificateRequest) string {
+    logger := i.storageContext.Backend.Logger().Named("issueSignHelper.getEndEntityName")
+
+	eeName := ""
+	// 1. If the endEntityName option is set, determine the end entity name based on the option
+	// 2. If the endEntityName option is not set, determine the end entity name based on the CSR
+
+	// cn: Use the CommonName from the CertificateRequest's DN
+	if i.role.EndEntityName == "cn" || i.role.EndEntityName == "" {
+		if csr.Subject.CommonName != "" {
+			eeName = csr.Subject.CommonName
+			logger.Trace(fmt.Sprintf("Using CommonName from the CertificateRequest's DN as the EJBCA end entity name: %q", eeName))
+			return eeName
+		}
+	}
+
+	//* dns: Use the first DNSName from the CertificateRequest's DNSNames SANs
+	if i.role.EndEntityName == "dns" || i.role.EndEntityName == "" {
+		if len(csr.DNSNames) > 0 && csr.DNSNames[0] != "" {
+			eeName = csr.DNSNames[0]
+			logger.Trace(fmt.Sprintf("Using the first DNSName from the CertificateRequest's DNSNames SANs as the EJBCA end entity name: %q", eeName))
+			return eeName
+		}
+	}
+
+	//* uri: Use the first URI from the CertificateRequest's URI Sans
+	if i.role.EndEntityName == "uri" || i.role.EndEntityName == "" {
+		if len(csr.URIs) > 0 {
+			eeName = csr.URIs[0].String()
+			logger.Trace(fmt.Sprintf("Using the first URI from the CertificateRequest's URI Sans as the EJBCA end entity name: %q", eeName))
+			return eeName
+		}
+	}
+
+	//* ip: Use the first IPAddress from the CertificateRequest's IPAddresses SANs
+	if i.role.EndEntityName == "ip" || i.role.EndEntityName == "" {
+		if len(csr.IPAddresses) > 0 {
+			eeName = csr.IPAddresses[0].String()
+			logger.Trace(fmt.Sprintf("Using the first IPAddress from the CertificateRequest's IPAddresses SANs as the EJBCA end entity name: %q", eeName))
+			return eeName
+		}
+	}
+
+	// End of defaults; if the endEntityName option is set to anything but cn, dns, or uri, use the option as the end entity name
+	if i.role.EndEntityName != "" && i.role.EndEntityName != "cn" && i.role.EndEntityName != "dns" && i.role.EndEntityName != "uri" {
+		eeName = i.role.EndEntityName
+		logger.Trace(fmt.Sprintf("Using the defaultEndEntityName as the EJBCA end entity name: %q", eeName))
+		return eeName
+	}
+
+	// If we get here, we were unable to determine the end entity name
+	logger.Error(fmt.Sprintf("the endEntityName option is set to %q, but no valid end entity name could be determined from the CertificateRequest", i.role.EndEntityName))
+
+	return eeName
 }
 
 func (i *issueSignHelper) getAccountBindingId() string {
@@ -649,31 +750,46 @@ func (i *issueSignHelper) getOtherSANs() (map[string][]string, error) {
 }
 
 func (i *issueSignHelper) CreateCsr() (*x509.CertificateRequest, error) {
+    logger := i.storageContext.Backend.Logger().Named("issueSignHelper.CreateCsr")
+    logger.Debug("Creating CSR")
+
 	subject, err := i.getSubject()
 	if err != nil {
 		return nil, err
 	}
+    logger.Trace("Subject for CSR", "subject", subject)
+
 	names, err := i.getDnsNames()
 	if err != nil {
 		return nil, err
 	}
+    logger.Trace("DNS names for CSR", "names", names)
+
 	emailAddresses, err := i.getEmailAddresses()
 	if err != nil {
 		return nil, err
 	}
+    logger.Trace("Email addresses for CSR", "emailAddresses", emailAddresses)
+
 	ipAddresses, err := i.getIpAddresses()
 	if err != nil {
 		return nil, err
 	}
+    logger.Trace("IP addresses for CSR", "ipAddresses", ipAddresses)
+
 	uriNames, err := i.getUriNames()
 	if err != nil {
 		return nil, err
 	}
+    logger.Trace("URI names for CSR", "uriNames", uriNames)
+
 	otherSans, err := i.getOtherSANs()
 	if err != nil {
 		return nil, err
 	}
+    logger.Trace("Other SANs for CSR", "otherSans", otherSans)
 
+    logger.Trace("Assembling CSR creation bundle")
 	creationBundle := &certutil.CreationBundle{
 		Params: &certutil.CreationParameters{
 			Subject:        subject,
@@ -690,6 +806,7 @@ func (i *issueSignHelper) CreateCsr() (*x509.CertificateRequest, error) {
 	}
 
 	// Create the CSR. The private key is also generated here.
+    logger.Trace("Creating CSR with random source")
 	csr, err := certutil.CreateCSRWithRandomSource(creationBundle, false, rand.Reader)
 	if err != nil {
 		return nil, err
@@ -702,6 +819,9 @@ func (i *issueSignHelper) CreateCsr() (*x509.CertificateRequest, error) {
 }
 
 func (i *issueSignHelper) GetCsr() (*x509.CertificateRequest, error) {
+    logger := i.storageContext.Backend.Logger().Named("issueSignHelper.GetCsr")
+    logger.Debug("Getting CSR from request data")
+
 	csr, ok := i.data.GetOk("csr")
 	if !ok {
 		return nil, fmt.Errorf("csr is required")
@@ -720,9 +840,11 @@ func (i *issueSignHelper) GetCsr() (*x509.CertificateRequest, error) {
 	}
 
 	if i.isSignVerbatim() {
+        logger.Trace("Sign verbatim - Skipping CSR validation")
 		return parsedCsr, nil
 	}
 
+    logger.Trace("Validating CSR")
 	err = i.validateCsr(parsedCsr)
 	if err != nil {
 		return nil, err
@@ -884,22 +1006,6 @@ func (i *issueSignHelper) validateCsr(csr *x509.CertificateRequest) error {
 }
 
 // ======================= General Helpers =======================
-
-func compileCertificatesToPemString(certificates []*x509.Certificate) (string, error) {
-	var pemBuilder strings.Builder
-
-	for _, certificate := range certificates {
-		err := pem.Encode(&pemBuilder, &pem.Block{
-			Type:  "CERTIFICATE",
-			Bytes: certificate.Raw,
-		})
-		if err != nil {
-			return "", err
-		}
-	}
-
-	return pemBuilder.String(), nil
-}
 
 func deserializeCsr(csr *x509.CertificateRequest) string {
 	// PEM encode the CSR
