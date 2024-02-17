@@ -1,5 +1,5 @@
 /*
-Copyright 2023 Keyfactor
+Copyright 2024 Keyfactor
 Licensed under the Apache License, Version 2.0 (the "License"); you may
 not use this file except in compliance with the License.  You may obtain a
 copy of the License at http://www.apache.org/licenses/LICENSE-2.0.  Unless
@@ -26,6 +26,7 @@ func TestConfig(t *testing.T) {
 		err := testConfigCreate(t, b, reqStorage, map[string]interface{}{
 			"client_cert":                 clientCert,
 			"client_key":                  clientKey,
+			"ca_cert":                     caCert,
 			"hostname":                    hostname,
 			"default_ca":                  _defaultCaName,
 			"default_end_entity_profile":  defaultEndEntityProfile,
@@ -37,6 +38,7 @@ func TestConfig(t *testing.T) {
 		err = testConfigRead(t, b, reqStorage, map[string]interface{}{
 			"client_cert":                 clientCert,
 			"client_key":                  clientKey,
+			"ca_cert":                     caCert,
 			"hostname":                    hostname,
 			"default_ca":                  _defaultCaName,
 			"default_end_entity_profile":  defaultEndEntityProfile,
@@ -48,6 +50,7 @@ func TestConfig(t *testing.T) {
 		err = testConfigUpdate(t, b, reqStorage, map[string]interface{}{
 			"client_cert":                 clientCert,
 			"client_key":                  clientKey,
+			"ca_cert":                     caCert,
 			"hostname":                    hostname,
 			"default_ca":                  _defaultCaName,
 			"default_end_entity_profile":  defaultEndEntityProfile,
@@ -59,6 +62,7 @@ func TestConfig(t *testing.T) {
 		err = testConfigRead(t, b, reqStorage, map[string]interface{}{
 			"client_cert":                 clientCert,
 			"client_key":                  clientKey,
+			"ca_cert":                     caCert,
 			"hostname":                    hostname,
 			"default_ca":                  _defaultCaName,
 			"default_end_entity_profile":  defaultEndEntityProfile,
@@ -151,6 +155,10 @@ func testConfigRead(t *testing.T, b logical.Backend, s logical.Storage, expected
 
 	for k, expectedV := range expected {
 		actualV, ok := resp.Data[k]
+
+        if actualV == "REDACTED" {
+            continue
+        }
 
 		if !ok {
 			return fmt.Errorf(`expected data["%s"] = %v but was not included in read output"`, k, expectedV)

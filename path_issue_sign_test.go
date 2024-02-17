@@ -1,5 +1,5 @@
 /*
-Copyright 2023 Keyfactor
+Copyright 2024 Keyfactor
 Licensed under the Apache License, Version 2.0 (the "License"); you may
 not use this file except in compliance with the License.  You may obtain a
 copy of the License at http://www.apache.org/licenses/LICENSE-2.0.  Unless
@@ -35,6 +35,7 @@ func TestPathIssueSign(t *testing.T) {
 	err := testConfigCreate(t, b, reqStorage, map[string]interface{}{
 		"client_cert":                 clientCert,
 		"client_key":                  clientKey,
+		"ca_cert":                     caCert,
 		"hostname":                    hostname,
 		"default_ca":                  _defaultCaName,
 		"default_end_entity_profile":  defaultEndEntityProfile,
@@ -68,7 +69,7 @@ func TestPathIssueSign(t *testing.T) {
 	})
 
 	t.Run("sign-verbatim", func(t *testing.T) {
-		err = testSign(t, b, reqStorage, fmt.Sprintf("sign-verbatim"))
+		err = testSign(t, b, reqStorage, "sign-verbatim")
 		assert.NoError(t, err)
 	})
 
@@ -78,7 +79,7 @@ func TestPathIssueSign(t *testing.T) {
 	})
 
 	t.Run("sign-verbatim", func(t *testing.T) {
-		err = testSign(t, b, reqStorage, fmt.Sprintf("sign-verbatim"))
+		err = testSign(t, b, reqStorage, "sign-verbatim")
 		assert.NoError(t, err)
 	})
 
@@ -136,7 +137,7 @@ func testIssue(t *testing.T, b logical.Backend, s logical.Storage, path string) 
 		Path:      path,
 		Storage:   s,
 		Data: map[string]interface{}{
-			//	"common_name": cn,
+            "common_name": "example.com",
 			"alt_names": "example.com",
 		},
 	})
@@ -244,7 +245,7 @@ func parseSubjectDN(subject string, randomizeCn bool) (pkix.Name, error) {
 			name.OrganizationalUnit = []string{value}
 		case "CN":
 			if randomizeCn {
-				value = fmt.Sprintf("%s-%s", value, generateRandomString(5))
+				name.CommonName = fmt.Sprintf("%s-%s", value, generateRandomString(5))
 			} else {
 				name.CommonName = value
 			}
