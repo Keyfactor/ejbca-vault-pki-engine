@@ -128,7 +128,7 @@ Before using the EJBCA PKI Secrets Engine, you must configure it by providing th
 Use the following vault command to create the `config` object:
 ```shell
 vault write ejbca/config \
-    ejbca_hostname="https://ejbca.example.com:8443/ejbca" \
+    hostname="https://ejbca.example.com:8443/ejbca" \
     client_cert=@/path/to/client/cert.pem \
     client_key=@/path/to/client/key.pem \
     ca_cert=@/path/to/ca/cert.pem \
