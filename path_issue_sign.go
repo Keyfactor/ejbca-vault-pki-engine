@@ -1,5 +1,5 @@
 /*
-Copyright 2023 Keyfactor
+Copyright 2024 Keyfactor
 Licensed under the Apache License, Version 2.0 (the "License"); you may
 not use this file except in compliance with the License.  You may obtain a
 copy of the License at http://www.apache.org/licenses/LICENSE-2.0.  Unless
@@ -419,16 +419,19 @@ RSA key-type issuer. Defaults to false.`,
 }
 
 func (b *ejbcaBackend) pathIssue(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+    b.Logger().Named("ejbcaBackend.pathIssue").Debug("Issue path called")
 	builder := &issueSignResponseBuilder{}
 	return builder.Config(b.makeStorageContext(ctx, req.Storage), req.Path, data).IssueCertificate()
 }
 
 func (b *ejbcaBackend) pathSign(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+    b.Logger().Named("ejbcaBackend.pathSign").Debug("Sign path called")
 	builder := &issueSignResponseBuilder{}
 	return builder.Config(b.makeStorageContext(ctx, req.Storage), req.Path, data).SignCertificate()
 }
 
 func (b *ejbcaBackend) pathSignVerbatim(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+    b.Logger().Named("ejbcaBackend.pathSignVerbatim").Debug("Sign Verbatim path called")
 	builder := &issueSignResponseBuilder{}
 	return builder.Config(b.makeStorageContext(ctx, req.Storage), req.Path, data).SignCertificate()
 }
