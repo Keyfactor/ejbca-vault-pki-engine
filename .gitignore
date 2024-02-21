@@ -22,3 +22,4 @@ go.work
 vault/
 .idea/
 bin/
+.env
