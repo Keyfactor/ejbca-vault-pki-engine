@@ -222,14 +222,14 @@ func (b *ejbcaBackend) pathConfigWrite(ctx context.Context, req *logical.Request
 	}
 
 	if hostname, ok := data.GetOk("hostname"); ok {
-        logger.Trace("Hostname present")
+        logger.Trace("Hostname present", "hostname", hostname.(string))
 		config.Hostname = hostname.(string)
 	} else if !ok && createOperation {
 		return nil, fmt.Errorf("missing hostname in configuration")
 	}
 
 	if defaultCa, ok := data.GetOk("default_ca"); ok {
-        logger.Trace("Default CA present")
+        logger.Trace("Default CA present", "default_ca", defaultCa.(string))
 		config.DefaultCAName = defaultCa.(string)
         // We can safely set the global defaultCaName since only one instance of Config ever exists in the backend
         logger.Trace("Globally setting default CA name", "default_ca", defaultCa.(string))
@@ -239,21 +239,21 @@ func (b *ejbcaBackend) pathConfigWrite(ctx context.Context, req *logical.Request
 	}
 
 	if defaultEndEntityProfile, ok := data.GetOk("default_end_entity_profile"); ok {
-        logger.Trace("Default End Entity Profile present")
+        logger.Trace("Default End Entity Profile present", "default_end_entity_profile", defaultEndEntityProfile.(string))
 		config.DefaultEndEntityProfileName = defaultEndEntityProfile.(string)
 	} else {
 		logger.Warn("default_end_entity_profile not found in request")
 	}
 
 	if defaultCertificateProfile, ok := data.GetOk("default_certificate_profile"); ok {
-        logger.Trace("Default Certificate Profile present")
+        logger.Trace("Default Certificate Profile present", "default_certificate_profile", defaultCertificateProfile.(string))
 		config.DefaultCertificateProfileName = defaultCertificateProfile.(string)
 	} else {
 		logger.Warn("default_certificate_profile not found in request")
 	}
 
     if defaultEndEntityName, ok := data.GetOk("default_end_entity_name"); ok {
-        logger.Trace("Default End Entity Name present")
+        logger.Trace("Default End Entity Name present", "default_end_entity_name", defaultEndEntityName.(string))
         config.DefaultEndEntityName = defaultEndEntityName.(string)
     } else {
         logger.Warn("default_end_entity_name not found in request")
