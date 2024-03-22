@@ -46,7 +46,6 @@ func TestRole(t *testing.T) {
 		"ttl":                                int(notBeforeDuration.Seconds()),
 		"allow_localhost":                    true,
 		"allowed_domains":                    []string{"example.com", "example.org"},
-		"allowed_domains_template":           false,
 		"allow_bare_domains":                 true,
 		"allow_subdomains":                   true,
 		"allow_glob_domains":                 true,
