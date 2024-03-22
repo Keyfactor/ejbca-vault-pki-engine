@@ -174,9 +174,10 @@ vault write ejbca/issue/example-dot-com \
 ### Revoke Paths
 The following path can be used to revoke certificates. Either the `serial_number` or `certificate` parameter is required.
 
-| Path   | Required Parameters                | Description                                                     | Help Path                      |
-|--------|------------------------------------|-----------------------------------------------------------------|--------------------------------|
-| revoke | serial_number _or_ certificate PEM | Revokes a certificate by serial number _or_ certificate itself. | `vault path-help ejbca/revoke` |
+| Path            | Required Parameters                                              | Description                                                              | Help Path                               |
+|-----------------|------------------------------------------------------------------|--------------------------------------------------------------------------|-----------------------------------------|
+| revoke          | serial_number _or_ certificate PEM                               | Revokes a certificate by serial number _or_ certificate itself.          | `vault path-help ejbca/revoke`          |
+| revoke-with-key | certificate private key _and_ serial_number _or_ certificate PEM | Revokes a certificate only if the user proves they have the private key. | `vault path-help ejbca/revoke-with-key` |
 
 > **Note:** The EJBCA PKI Secrets Engine cannot revoke certificates that were not issued by the EJBCA PKI Secrets Engine. That is, the certificate must exist in the Secrets Engine's backend.
 
