@@ -49,7 +49,7 @@ func getTestBackend(tb testing.TB) (*ejbcaBackend, logical.Storage) {
 	}
 	clientCert = string(file)
 
-	clientKeyPath := os.Getenv("EJBCA_CLIENT_KEY_PATH")
+	clientKeyPath := os.Getenv("EJBCA_CLIENT_CERT_KEY_PATH")
 	file, err = os.ReadFile(clientKeyPath)
 	if err != nil {
 		tb.Fatalf("error reading client key: %v", err)

@@ -12,6 +12,7 @@ License.
 package ejbca_vault_pki_engine
 
 import (
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -22,18 +23,20 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
+	"regexp"
+	"strings"
+	"time"
+
 	"github.com/Keyfactor/ejbca-go-client-sdk/api/ejbca"
 	"github.com/hashicorp/go-secure-stdlib/strutil"
 	"github.com/hashicorp/vault/sdk/framework"
 	"github.com/hashicorp/vault/sdk/helper/certutil"
 	"github.com/hashicorp/vault/sdk/helper/errutil"
 	"github.com/hashicorp/vault/sdk/logical"
+	"github.com/ryanuber/go-glob"
 	"golang.org/x/net/idna"
-	"net"
-	"net/url"
-	"regexp"
-	"strings"
-	"time"
 )
 
 var (
@@ -42,8 +45,8 @@ var (
 )
 
 func revokeCert(sc *storageContext, serialNumber string) (*logical.Response, error) {
-    logger := sc.Backend.Logger().Named("revokeCert")
-    logger.Info("revoking certificate with serial number " + serialNumber)
+	logger := sc.Backend.Logger().Named("revokeCert")
+	logger.Info("revoking certificate with serial number " + serialNumber)
 
 	client, err := sc.getClient()
 	if err != nil {
@@ -58,13 +61,13 @@ func revokeCert(sc *storageContext, serialNumber string) (*logical.Response, err
 
 	renormSerialNumber := strings.ReplaceAll(denormalizeSerial(serialNumber), ":", "")
 
-    logger.Debug("Calling EJBCA to revoke certificate with serial number " + renormSerialNumber)
+	logger.Debug("Calling EJBCA to revoke certificate with serial number " + renormSerialNumber)
 	execute, _, err := client.V1CertificateApi.RevokeCertificate(sc.Context, parsedBundle.Certificate.Issuer.String(), renormSerialNumber).Reason("CESSATION_OF_OPERATION").Execute()
 	if err != nil {
 		return nil, client.createErrorFromEjbcaErr(sc.Backend, "failed to revoke certificate with serial number "+serialNumber, err)
 	}
 
-    logger.Debug("Certificate with serial number " + renormSerialNumber + " revoked successfully")
+	logger.Debug("Certificate with serial number " + renormSerialNumber + " revoked successfully")
 
 	//remove the certificate from vault.
 	err = sc.Cert().deleteCert(serialNumber)
@@ -77,7 +80,71 @@ func revokeCert(sc *storageContext, serialNumber string) (*logical.Response, err
 		return nil, err
 	}
 
-    logger.Trace("Creating revoked certificate entry")
+	logger.Trace("Creating revoked certificate entry")
+	revokedEntry := &revokedCertEntry{
+		Certificate:       bundle.Certificate,
+		SerialNumber:      bundle.SerialNumber,
+		RevocationTime:    execute.RevocationDate.Unix(),
+		RevocationTimeUTC: execute.RevocationDate.UTC(),
+	}
+
+	err = sc.Cert().putRevokedCertEntry(revokedEntry)
+	if err != nil {
+		return nil, err
+	}
+
+	return &logical.Response{
+		Data: map[string]interface{}{
+			"revocation_time":         execute.RevocationDate.Unix(),
+			"revocation_time_rfc3339": execute.RevocationDate.UTC().Format(time.RFC3339Nano),
+			"state":                   "revoked",
+		},
+	}, nil
+}
+
+func revokeCertWithPrivateKey(sc *storageContext, serialNumber string, privateKey crypto.PrivateKey) (*logical.Response, error) {
+	logger := sc.Backend.Logger().Named("revokeCert")
+
+	client, err := sc.getClient()
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the certificate
+	parsedBundle, err := sc.Cert().fetchCertBundleBySerial(serialNumber)
+	if err != nil {
+		return nil, err
+	}
+
+	logger.Debug("Validating that private key matches certificate with serial number " + serialNumber)
+	if !privateKeyMatchesCertificate(parsedBundle.Certificate, privateKey) {
+		return nil, errors.New("private key does not match certificate with serial number " + serialNumber)
+	}
+
+	logger.Info("Private Key matches, revoking certificate with serial number " + serialNumber)
+
+	renormSerialNumber := strings.ReplaceAll(denormalizeSerial(serialNumber), ":", "")
+
+	logger.Debug("Calling EJBCA to revoke certificate with serial number " + renormSerialNumber)
+	execute, _, err := client.V1CertificateApi.RevokeCertificate(sc.Context, parsedBundle.Certificate.Issuer.String(), renormSerialNumber).Reason("CESSATION_OF_OPERATION").Execute()
+	if err != nil {
+		return nil, client.createErrorFromEjbcaErr(sc.Backend, "failed to revoke certificate with serial number "+serialNumber, err)
+	}
+
+	logger.Debug("Certificate with serial number " + renormSerialNumber + " revoked successfully")
+
+	//remove the certificate from vault.
+	err = sc.Cert().deleteCert(serialNumber)
+	if err != nil {
+		return nil, err
+	}
+
+	bundle, err := parsedBundle.ToCertBundle()
+	if err != nil {
+		return nil, err
+	}
+
+	logger.Debug("Creating revoked certificate entry")
 	revokedEntry := &revokedCertEntry{
 		Certificate:       bundle.Certificate,
 		SerialNumber:      bundle.SerialNumber,
@@ -118,23 +185,23 @@ func (b *issueSignResponseBuilder) Config(sc *storageContext, path string, data 
 // IssueCertificate creates a new certificate and private key according to the role configuration
 // and signs it using the configured CA.
 func (b *issueSignResponseBuilder) IssueCertificate() (*logical.Response, error) {
-    logger := b.storageContext.Backend.Logger().Named("issueSignResponseBuilder.IssueCertificate")
-    logger.Debug("Issuing certificate")
+	logger := b.storageContext.Backend.Logger().Named("issueSignResponseBuilder.IssueCertificate")
+	logger.Debug("Issuing certificate")
 
-    logger.Trace("Setting role for certificate issuance")
+	logger.Trace("Setting role for certificate issuance")
 	err := b.helper.SetRole()
 	if err != nil {
 		return nil, err
 	}
 
 	// Issue methods create the private key and CSR according to the role configuration
-    logger.Trace("Creating CSR")
+	logger.Trace("Creating CSR")
 	csr, err := b.helper.CreateCsr()
 	if err != nil {
 		return nil, err
 	}
 
-    logger.Trace("Signing CSR")
+	logger.Trace("Signing CSR")
 	csrRestResponse, err := b.signCsr(csr)
 	if err != nil {
 		return nil, err
@@ -145,22 +212,22 @@ func (b *issueSignResponseBuilder) IssueCertificate() (*logical.Response, error)
 
 // SignCertificate signs the provided CSR using the configured CA.
 func (b *issueSignResponseBuilder) SignCertificate() (*logical.Response, error) {
-    logger := b.storageContext.Backend.Logger().Named("issueSignResponseBuilder.SignCertificate")
-    logger.Debug("Signing certificate")
+	logger := b.storageContext.Backend.Logger().Named("issueSignResponseBuilder.SignCertificate")
+	logger.Debug("Signing certificate")
 
-    logger.Trace("Setting role for certificate signing")
+	logger.Trace("Setting role for certificate signing")
 	err := b.helper.SetRole()
 	if err != nil {
 		return nil, err
 	}
 
-    logger.Trace("Getting CSR")
+	logger.Trace("Getting CSR")
 	csr, err := b.helper.GetCsr()
 	if err != nil {
 		return nil, err
 	}
 
-    logger.Trace("Signing CSR")
+	logger.Trace("Signing CSR")
 	csrRestResponse, err := b.signCsr(csr)
 	if err != nil {
 		return nil, err
@@ -171,14 +238,14 @@ func (b *issueSignResponseBuilder) SignCertificate() (*logical.Response, error) 
 
 // signCsr signs the provided CSR using the EJBCA Go Client SDK library.
 func (b *issueSignResponseBuilder) signCsr(csr *x509.CertificateRequest) (*ejbca.CertificateRestResponse, error) {
-    logger := b.storageContext.Backend.Logger().Named("issueSignResponseBuilder.signCsr")
-    logger.Debug("Signing CSR")
+	logger := b.storageContext.Backend.Logger().Named("issueSignResponseBuilder.signCsr")
+	logger.Debug("Signing CSR")
 
 	endEntityPassword := generateRandomString(16)
 
 	enrollConfig := ejbca.EnrollCertificateRestRequest{}
-    enrollConfig.SetUsername(b.helper.getEndEntityName(csr))
-    enrollConfig.SetPassword(endEntityPassword)
+	enrollConfig.SetUsername(b.helper.getEndEntityName(csr))
+	enrollConfig.SetPassword(endEntityPassword)
 
 	// Configure the request using local state and the CSR
 	enrollConfig.SetCertificateRequest(deserializeCsr(csr))
@@ -188,11 +255,11 @@ func (b *issueSignResponseBuilder) signCsr(csr *x509.CertificateRequest) (*ejbca
 	enrollConfig.SetIncludeChain(b.helper.includeChain())
 	enrollConfig.SetAccountBindingId(b.helper.getAccountBindingId())
 
-    logger.Trace("EJBCA PKCS#10 Request CA name", "caName", b.helper.getCaName())
-    logger.Trace("EJBCA PKCS#10 Request certificate profile name", "certificateProfileName", b.helper.getCertificateProfileName())
-    logger.Trace("EJBCA PKCS#10 Request end entity profile name", "endEntityProfileName", b.helper.getEndEntityProfileName())
-    logger.Trace("EJBCA PKCS#10 Request include chain", "includeChain", b.helper.includeChain())
-    logger.Trace("EJBCA PKCS#10 Request account binding ID", "accountBindingId", b.helper.getAccountBindingId())
+	logger.Trace("EJBCA PKCS#10 Request CA name", "caName", b.helper.getCaName())
+	logger.Trace("EJBCA PKCS#10 Request certificate profile name", "certificateProfileName", b.helper.getCertificateProfileName())
+	logger.Trace("EJBCA PKCS#10 Request end entity profile name", "endEntityProfileName", b.helper.getEndEntityProfileName())
+	logger.Trace("EJBCA PKCS#10 Request include chain", "includeChain", b.helper.includeChain())
+	logger.Trace("EJBCA PKCS#10 Request account binding ID", "accountBindingId", b.helper.getAccountBindingId())
 
 	// Retrieve the EJBCA client from the storage context
 	client, err := b.storageContext.getClient()
@@ -201,7 +268,7 @@ func (b *issueSignResponseBuilder) signCsr(csr *x509.CertificateRequest) (*ejbca
 	}
 
 	// Send the CSR to EJBCA to be signed
-    logger.Trace("Enrolling certificate with EJBCA using PKCS#10 request")
+	logger.Trace("Enrolling certificate with EJBCA using PKCS#10 request")
 	enrollResponse, _, err := client.V1CertificateApi.EnrollPkcs10Certificate(b.storageContext.Context).EnrollCertificateRestRequest(enrollConfig).Execute()
 	if err != nil {
 		return nil, client.createErrorFromEjbcaErr(b.storageContext.Backend, "error enrolling certificate with EJBCA. verify that the certificate profile name, end entity profile name, and certificate authority name are appropriate for the certificate request.", err)
@@ -238,8 +305,8 @@ func (i *issueSignHelper) Init(sc *storageContext, path string, data *framework.
 }
 
 func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.CertificateRestResponse) (*logical.Response, error) {
-    logger := i.storageContext.Backend.Logger().Named("issueSignHelper.SerializeCertificateResponse")
-    logger.Debug("Serializing certificate response")
+	logger := i.storageContext.Backend.Logger().Named("issueSignHelper.SerializeCertificateResponse")
+	logger.Debug("Serializing certificate response")
 
 	data := map[string]interface{}{}
 	var err error
@@ -247,8 +314,8 @@ func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.Cer
 	var certBytes []byte
 
 	if enrollResponse.GetResponseFormat() == "PEM" {
-        logger.Trace("EJBCA returned certificate in PEM format - serializing")
-          
+		logger.Trace("EJBCA returned certificate in PEM format - serializing")
+
 		// Extract the certificate from the PEM string
 		block, _ := pem.Decode([]byte(enrollResponse.GetCertificate()))
 		if block == nil {
@@ -256,7 +323,7 @@ func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.Cer
 		}
 		certBytes = block.Bytes
 	} else if enrollResponse.GetResponseFormat() == "DER" {
-        logger.Trace("EJBCA returned certificate in DER format - serializing")
+		logger.Trace("EJBCA returned certificate in DER format - serializing")
 
 		// Depending on how the EJBCA API was called, the certificate will either be single b64 encoded or double b64 encoded
 		// Try to decode the certificate twice, but don't exit if we fail here. The certificate is decoded later which
@@ -279,7 +346,7 @@ func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.Cer
 		return nil, err
 	}
 
-    logger.Trace("Fetching CA bundle from storage to include in response")
+	logger.Trace("Fetching CA bundle from storage to include in response")
 	caParsedBundle, err := i.storageContext.CA().fetchCaBundle(i.getCaName())
 	if err != nil {
 		return nil, err
@@ -296,7 +363,7 @@ func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.Cer
 		return nil, err
 	}
 
-    logger.Trace("Populating parsed cert bundle to response data")
+	logger.Trace("Populating parsed cert bundle to response data")
 
 	data["expiration"] = cert.NotAfter.Unix()
 	data["serial_number"] = certBundle.SerialNumber
@@ -324,7 +391,7 @@ func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.Cer
 
 	// If we created the CSR, we need to return the private key
 	if !i.isCsrEnroll() {
-        logger.Trace("Private key generated by EJBCA PKI engine - serializing", "privateKeyType", i.privateKeyHelper.GetPrivateKeyType())
+		logger.Trace("Private key generated by EJBCA PKI engine - serializing", "privateKeyType", i.privateKeyHelper.GetPrivateKeyType())
 		data["private_key_type"] = i.privateKeyHelper.GetPrivateKeyType()
 		switch i.getPrivateKeyFormat() {
 		case "pem":
@@ -380,14 +447,14 @@ func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.Cer
 }
 
 func (i *issueSignHelper) SetRole() error {
-    logger := i.storageContext.Backend.Logger().Named("issueSignHelper.SetRole")
-    logger.Debug("Setting role")
+	logger := i.storageContext.Backend.Logger().Named("issueSignHelper.SetRole")
+	logger.Debug("Setting role")
 
 	var err error
 	roleRequired := true
 
 	if i.isSignVerbatim() {
-        roleRequired = false
+		roleRequired = false
 	}
 
 	var roleName string
@@ -396,7 +463,7 @@ func (i *issueSignHelper) SetRole() error {
 		roleName = r.(string)
 	}
 
-    logger.Trace("Fetching role from storage", "roleName", roleName)
+	logger.Trace("Fetching role from storage", "roleName", roleName)
 	role, err := i.storageContext.Role().getRole(roleName)
 	if err != nil {
 		return err
@@ -406,7 +473,7 @@ func (i *issueSignHelper) SetRole() error {
 	}
 
 	if i.isSignVerbatim() {
-	    logger.Trace("Sign verbatim - Won't validate CSR against role")
+		logger.Trace("Sign verbatim - Won't validate CSR against role")
 		role = &roleEntry{}
 		role.AllowLocalhost = true
 		role.AllowAnyName = true
@@ -444,17 +511,17 @@ func (i *issueSignHelper) isSignVerbatim() bool {
 	// - sign-verbatim(/:role_name)
 	// - issuer/:issuer_ref/sign-verbatim(/:role_name)
 
-    isSignVerbatim := strings.HasPrefix(i.path, "sign-verbatim") || (strings.HasPrefix(i.path, "issuer/") && strings.Contains(i.path, "/sign-verbatim"))
-    i.storageContext.Backend.Logger().Named("issueSignHelper.isSignVerbatim").Debug("Checking if path is sign verbatim", "isSignVerbatim", isSignVerbatim)
-    return isSignVerbatim
+	isSignVerbatim := strings.HasPrefix(i.path, "sign-verbatim") || (strings.HasPrefix(i.path, "issuer/") && strings.Contains(i.path, "/sign-verbatim"))
+	i.storageContext.Backend.Logger().Named("issueSignHelper.isSignVerbatim").Debug("Checking if path is sign verbatim", "isSignVerbatim", isSignVerbatim)
+	return isSignVerbatim
 }
 
 func (i *issueSignHelper) getCaName() string {
-    logger := i.storageContext.Backend.Logger().Named("issueSignHelper.getCaName")
+	logger := i.storageContext.Backend.Logger().Named("issueSignHelper.getCaName")
 
 	if strings.HasPrefix(i.path, "sign-verbatim") || strings.HasPrefix(i.path, "sign/") || strings.HasPrefix(i.path, "issue/") {
-	    logger.Trace("Using CA name (issuer) from role", "caName", i.role.Issuer)
-        return i.role.Issuer
+		logger.Trace("Using CA name (issuer) from role", "caName", i.role.Issuer)
+		return i.role.Issuer
 	}
 
 	// If the path is:
@@ -468,7 +535,7 @@ func (i *issueSignHelper) getCaName() string {
 			return ""
 		}
 
-        logger.Trace("Using CA name (issuer) from path", "caName", issuer.(string))
+		logger.Trace("Using CA name (issuer) from path", "caName", issuer.(string))
 		return issuer.(string)
 	}
 
@@ -496,11 +563,11 @@ func (i *issueSignHelper) isCsrEnroll() bool {
 	if strings.HasPrefix(i.path, "sign/") ||
 		(strings.HasPrefix(i.path, "issuer/") && strings.Contains(i.path, "sign/")) ||
 		strings.HasPrefix(i.path, "sign-verbatim") {
-            i.storageContext.Backend.Logger().Named("issueSignHelper.isCsrEnroll").Trace("Determined path from request requires CSR enrollment (client-generated keys)")
-            return true
+		i.storageContext.Backend.Logger().Named("issueSignHelper.isCsrEnroll").Trace("Request path is Sign - client-generated keys")
+		return true
 	}
 
-    i.storageContext.Backend.Logger().Named("issueSignHelper.isCsrEnroll").Trace("Determined path from request does not require CSR enrollment (EJBCA PKI engine will generate keys)")
+	i.storageContext.Backend.Logger().Named("issueSignHelper.isCsrEnroll").Trace("Request path is Issue - EJBCA Vault PKI Engine-generated keys")
 	return false
 }
 
@@ -514,7 +581,7 @@ func (i *issueSignHelper) getEndEntityProfileName() string {
 
 // getEndEntityName determines the EJBCA end entity name based on the CSR and the defaultEndEntityName option.
 func (i *issueSignHelper) getEndEntityName(csr *x509.CertificateRequest) string {
-    logger := i.storageContext.Backend.Logger().Named("issueSignHelper.getEndEntityName")
+	logger := i.storageContext.Backend.Logger().Named("issueSignHelper.getEndEntityName")
 
 	eeName := ""
 	// 1. If the endEntityName option is set, determine the end entity name based on the option
@@ -633,7 +700,6 @@ func (i *issueSignHelper) getSubject() (pkix.Name, error) {
 }
 
 func (i *issueSignHelper) getDnsNames() ([]string, error) {
-	// TODO validate DNS names against role
 	var dnsNames []string
 
 	if altNames := i.data.Get("alt_names").(string); len(altNames) > 0 {
@@ -706,8 +772,6 @@ func (i *issueSignHelper) getUriNames() ([]*url.URL, error) {
 		}
 
 		for _, uri := range uriAlt {
-			// TODO validate URI SAN against role
-
 			parsedURI, err := url.Parse(uri)
 			if parsedURI == nil || err != nil {
 				return nil, errutil.UserError{
@@ -750,46 +814,46 @@ func (i *issueSignHelper) getOtherSANs() (map[string][]string, error) {
 }
 
 func (i *issueSignHelper) CreateCsr() (*x509.CertificateRequest, error) {
-    logger := i.storageContext.Backend.Logger().Named("issueSignHelper.CreateCsr")
-    logger.Debug("Creating CSR")
+	logger := i.storageContext.Backend.Logger().Named("issueSignHelper.CreateCsr")
+	logger.Debug("Creating CSR")
 
 	subject, err := i.getSubject()
 	if err != nil {
 		return nil, err
 	}
-    logger.Trace("Subject for CSR", "subject", subject)
+	logger.Trace("Subject for CSR", "subject", subject)
 
 	names, err := i.getDnsNames()
 	if err != nil {
 		return nil, err
 	}
-    logger.Trace("DNS names for CSR", "names", names)
+	logger.Trace("DNS names for CSR", "names", names)
 
 	emailAddresses, err := i.getEmailAddresses()
 	if err != nil {
 		return nil, err
 	}
-    logger.Trace("Email addresses for CSR", "emailAddresses", emailAddresses)
+	logger.Trace("Email addresses for CSR", "emailAddresses", emailAddresses)
 
 	ipAddresses, err := i.getIpAddresses()
 	if err != nil {
 		return nil, err
 	}
-    logger.Trace("IP addresses for CSR", "ipAddresses", ipAddresses)
+	logger.Trace("IP addresses for CSR", "ipAddresses", ipAddresses)
 
 	uriNames, err := i.getUriNames()
 	if err != nil {
 		return nil, err
 	}
-    logger.Trace("URI names for CSR", "uriNames", uriNames)
+	logger.Trace("URI names for CSR", "uriNames", uriNames)
 
 	otherSans, err := i.getOtherSANs()
 	if err != nil {
 		return nil, err
 	}
-    logger.Trace("Other SANs for CSR", "otherSans", otherSans)
+	logger.Trace("Other SANs for CSR", "otherSans", otherSans)
 
-    logger.Trace("Assembling CSR creation bundle")
+	logger.Trace("Assembling CSR creation bundle")
 	creationBundle := &certutil.CreationBundle{
 		Params: &certutil.CreationParameters{
 			Subject:        subject,
@@ -806,8 +870,14 @@ func (i *issueSignHelper) CreateCsr() (*x509.CertificateRequest, error) {
 	}
 
 	// Create the CSR. The private key is also generated here.
-    logger.Trace("Creating CSR with random source")
+	logger.Trace("Creating CSR with random source")
 	csr, err := certutil.CreateCSRWithRandomSource(creationBundle, false, rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+
+	logger.Trace("Sanity check - validating generated CSR against role")
+	err = i.validateCsr(csr.CSR)
 	if err != nil {
 		return nil, err
 	}
@@ -819,8 +889,8 @@ func (i *issueSignHelper) CreateCsr() (*x509.CertificateRequest, error) {
 }
 
 func (i *issueSignHelper) GetCsr() (*x509.CertificateRequest, error) {
-    logger := i.storageContext.Backend.Logger().Named("issueSignHelper.GetCsr")
-    logger.Debug("Getting CSR from request data")
+	logger := i.storageContext.Backend.Logger().Named("issueSignHelper.GetCsr")
+	logger.Debug("Getting CSR from request data")
 
 	csr, ok := i.data.GetOk("csr")
 	if !ok {
@@ -840,11 +910,11 @@ func (i *issueSignHelper) GetCsr() (*x509.CertificateRequest, error) {
 	}
 
 	if i.isSignVerbatim() {
-        logger.Trace("Sign verbatim - Skipping CSR validation")
+		logger.Trace("Sign verbatim - Skipping CSR validation")
 		return parsedCsr, nil
 	}
 
-    logger.Trace("Validating CSR")
+	logger.Trace("Validating CSR")
 	err = i.validateCsr(parsedCsr)
 	if err != nil {
 		return nil, err
@@ -1000,7 +1070,206 @@ func (i *issueSignHelper) validateCsr(csr *x509.CertificateRequest) error {
 		}
 	}
 
-	// TODO many other validations based on role
+	err = i.validateNames(csr)
+	if err != nil {
+		return errutil.UserError{Err: fmt.Sprintf("error validating names: %v", err)}
+	}
+
+	return nil
+}
+
+// validateNames validates all domain names from the CSR against the domain restrictions in the role
+func (i *issueSignHelper) validateNames(csr *x509.CertificateRequest) error {
+	logger := i.storageContext.Backend.Logger().Named("issueSignHelper.validateNames")
+	logger.Debug("Validating CSR names")
+
+	// Compile the list of names to validate
+	names := append(csr.DNSNames, csr.EmailAddresses...)
+	names = append(names, csr.Subject.CommonName)
+
+	for j, name := range names {
+        logger.Debug(fmt.Sprintf("Validating %s [%d/%d]", name, j+1, len(names)))
+
+		reducedName := name
+		emailDomain := reducedName
+		wildcardLabel := ""
+		isEmail := false
+		isWildcard := false
+
+		// If it has an @, assume it is an email address and separate out the
+		// user from the hostname portion so that we can act on the hostname.
+		// Note that this matches behavior from the alt_names parameter. If it
+		// ends up being problematic for users, I guess that could be separated
+		// into dns_names and email_names in the future to be explicit, but I
+		// don't think this is likely.
+		if strings.Contains(reducedName, "@") {
+			logger.Trace("Email address detected", "reducedName", reducedName)
+			splitEmail := strings.Split(reducedName, "@")
+			if len(splitEmail) != 2 {
+				return fmt.Errorf("invalid email address: %s", reducedName)
+			}
+			reducedName = splitEmail[1]
+			emailDomain = splitEmail[1]
+			isEmail = true
+		}
+
+		if isWildcardDomain(reducedName) {
+			logger.Trace("Wildcard domain detected", "reducedName", reducedName)
+
+			// Regardless of later rejections below, this common name contains
+			// a wildcard character and is thus technically a wildcard name.
+			isWildcard = true
+
+			// Additionally, if AllowWildcardCertificates is explicitly
+			// forbidden, it takes precedence over AllowAnyName, thus we should
+			// reject the name now.
+			if i.role.AllowWildcardCertificates != nil && !*i.role.AllowWildcardCertificates {
+				return fmt.Errorf("wildcard certificates are not allowed in this role, but was provided %s", name)
+			}
+
+			// Check that this domain is well-formatted per RFC 6125.
+			var err error
+			wildcardLabel, reducedName, err = validateWildcardDomain(reducedName)
+			if err != nil {
+				return fmt.Errorf("invalid wildcard domain: %s", reducedName)
+			}
+
+			logger.Trace("Wildcard domain is valid", "reducedName", reducedName)
+		}
+
+		// Email addresses using wildcard domain names do not make sense
+		// in a Common Name field.
+		if isEmail && isWildcard {
+			return fmt.Errorf("wildcard domain names are not allowed in email addresses: %s", name)
+		}
+
+		// AllowAnyName is checked after this because EnforceHostnames still
+		// applies when allowing any name. Also, we check the reduced name to
+		// ensure that we are not either checking a full email address or a
+		// wildcard prefix.
+		if i.role.EnforceHostnames {
+			logger.Trace("EnforceHostnames is set - Validating domain name", "reducedName", reducedName)
+
+			if reducedName != "" {
+				// See note above about splitLabels having only one segment
+				// and setting reducedName to the empty string.
+				p := idna.New(
+					idna.StrictDomainName(true),
+					idna.VerifyDNSLength(true),
+				)
+				converted, err := p.ToASCII(reducedName)
+				if err != nil {
+					return fmt.Errorf("invalid domain name: %s", reducedName)
+				}
+				if !hostnameRegex.MatchString(converted) {
+					return fmt.Errorf("invalid domain name: %s", reducedName)
+				}
+			}
+
+			// When a wildcard is specified, we additionally need to validate
+			// the label with the wildcard is correctly formed.
+			allWildRegex := `\*`
+			startWildRegex := `\*` + labelRegex
+			endWildRegex := labelRegex + `\*`
+			middleWildRegex := labelRegex + `\*` + labelRegex
+			leftWildLabelRegex := regexp.MustCompile(`^(` + allWildRegex + `|` + startWildRegex + `|` + endWildRegex + `|` + middleWildRegex + `)$`)
+			if isWildcard && !leftWildLabelRegex.MatchString(wildcardLabel) {
+				return fmt.Errorf("invalid wildcard domain name: %s", name)
+			}
+
+			logger.Trace("Domain name is valid", "reducedName", reducedName)
+		}
+
+		if i.role.AllowAnyName {
+			logger.Trace("AllowAnyName is set - Skipping further validation", "reducedName", reducedName)
+			continue
+		}
+
+		// The following blocks all work the same basic way:
+		// 1) If a role allows a certain class of base (localhost, token
+		// display name, role-configured domains), perform further tests
+		//
+		// 2) If there is a perfect match on either the sanitized name or it's an
+		// email address with a perfect match on the hostname portion, allow it
+		//
+		// 3) If subdomains are allowed, we check based on the sanitized name;
+		// note that if not a wildcard, will be equivalent to the email domain
+		// for email checks, and we already checked above for both a wildcard
+		// and email address being present in the same name
+		// 3a) First we check for a non-wildcard subdomain, as in <name>.<base>
+		// 3b) Then we check if it's a wildcard and the base domain is a match
+		//
+		// Variances are noted in-line
+
+		if i.role.AllowLocalhost {
+			if reducedName == "localhost" ||
+				reducedName == "localdomain" ||
+				(isEmail && emailDomain == "localhost") ||
+				(isEmail && emailDomain == "localdomain") {
+				logger.Trace(fmt.Sprintf("%s is allowed by AllowLocalhost", name))
+				continue
+			}
+
+			if i.role.AllowSubdomains {
+				// It is possible, if unlikely, to have a subdomain of "localhost"
+				if strings.HasSuffix(reducedName, ".localhost") ||
+					(isWildcard && reducedName == "localhost") {
+					logger.Trace(fmt.Sprintf("%s is allowed by AllowLocalhost [subdomain of localhost]", name))
+					continue
+				}
+
+				// A subdomain of "localdomain" is also not entirely uncommon
+				if strings.HasSuffix(reducedName, ".localdomain") ||
+					(isWildcard && reducedName == "localdomain") {
+					logger.Trace(fmt.Sprintf("%s is allowed by AllowLocalhost [subdomain of localdomain]", name))
+					continue
+				}
+			}
+		}
+
+		if len(i.role.AllowedDomains) > 0 {
+			valid := false
+			for _, allowedDomain := range i.role.AllowedDomains {
+				// If there is, say, a trailing comma, ignore it
+				if allowedDomain == "" {
+					continue
+				}
+
+				// First, allow an exact match of the base domain if that role flag
+				// is enabled
+				if i.role.AllowBareDomains &&
+					(strings.EqualFold(name, allowedDomain) ||
+						(isEmail && strings.EqualFold(emailDomain, allowedDomain))) {
+					valid = true
+					logger.Trace(fmt.Sprintf("%s is allowed by AllowBareDomains [exactly matched %s]", name, allowedDomain))
+					break
+				}
+
+				if i.role.AllowSubdomains {
+					if strings.HasSuffix(reducedName, "."+allowedDomain) ||
+						(isWildcard && strings.EqualFold(reducedName, allowedDomain)) {
+						valid = true
+						logger.Trace(fmt.Sprintf("%s is allowed by AllowSubdomains [subdomain of %s]", name, allowedDomain))
+						break
+					}
+				}
+
+				if i.role.AllowGlobDomains &&
+					strings.Contains(allowedDomain, "*") &&
+					glob.Glob(strings.ToLower(allowedDomain), strings.ToLower(name)) {
+					valid = true
+					logger.Trace(fmt.Sprintf("%s is allowed by AllowGlobDomains [matched %s]", name, allowedDomain))
+					break
+				}
+			}
+
+			if valid {
+				continue
+			}
+		}
+
+		return fmt.Errorf("domain name %q is not allowed by role. please add this domain to allowed_domains", name)
+	}
 
 	return nil
 }
@@ -1026,10 +1295,88 @@ func serializePemCert(cert string) (*x509.Certificate, error) {
 	return x509.ParseCertificate(block.Bytes)
 }
 
+func serializePemPrivateKey(privateKey string) (crypto.PrivateKey, error) {
+	// Serialize the private key
+	block, _ := pem.Decode([]byte(privateKey))
+	if block == nil {
+		return nil, fmt.Errorf("failed to decode PEM block containing private key")
+	}
+
+	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		// If we failed to parse the private key as PKCS#8, try to parse it as PKCS#1
+		key, err = x509.ParsePKCS1PrivateKey(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse private key as PKCS#8 or PKCS#1: %v", err)
+		}
+	}
+
+	return key, nil
+}
+
+func privateKeyMatchesCertificate(cert *x509.Certificate, key crypto.PrivateKey) bool {
+	switch pubKey := cert.PublicKey.(type) {
+	case *rsa.PublicKey:
+		privKey, ok := key.(*rsa.PrivateKey)
+		return ok && pubKey.N.Cmp(privKey.N) == 0
+	case *ecdsa.PublicKey:
+		privKey, ok := key.(*ecdsa.PrivateKey)
+		return ok && pubKey.X.Cmp(privKey.X) == 0 && pubKey.Y.Cmp(privKey.Y) == 0
+	default:
+		return false
+	}
+}
+
 func normalizeSerial(serial string) string {
 	return strings.Replace(strings.ToLower(serial), ":", "-", -1)
 }
 
 func denormalizeSerial(serial string) string {
 	return strings.ReplaceAll(strings.ToLower(serial), "-", ":")
+}
+
+func isWildcardDomain(name string) bool {
+	return strings.Contains(name, "*")
+}
+
+func validateWildcardDomain(name string) (string, string, error) {
+	var wildcardLabel string
+	var reducedName string
+
+	if strings.Count(name, "*") > 1 {
+		return wildcardLabel, reducedName, fmt.Errorf("expected only one wildcard identifier in the given domain name")
+	}
+
+	// Split the Common Name into two parts: a left-most label and the
+	// remaining segments (if present).
+	splitLabels := strings.SplitN(name, ".", 2)
+	if len(splitLabels) != 2 {
+		// We've been given a single-part domain name that consists
+		// entirely of a wildcard. This is a little tricky to handle,
+		// but EnforceHostnames validates both the wildcard-containing
+		// label and the reduced name, but _only_ the latter if it is
+		// non-empty. This allows us to still validate the only label
+		// component matches hostname expectations still.
+		wildcardLabel = splitLabels[0]
+		reducedName = ""
+	} else {
+		// We have a (at least) two label domain name. But before we can
+		// update our names, we need to validate the wildcard ended up
+		// in the segment we expected it to. While this is (kinda)
+		// validated under EnforceHostnames's leftWildLabelRegex, we
+		// still need to validate it in the non-enforced mode.
+		//
+		// By validated assumption above, we know there's strictly one
+		// wildcard in this domain so we only need to check the wildcard
+		// label or the reduced name (as one is equivalent to the other).
+		// Because we later assume reducedName _lacks_ wildcard segments,
+		// we validate that.
+		wildcardLabel = splitLabels[0]
+		reducedName = splitLabels[1]
+		if strings.Contains(reducedName, "*") {
+			return wildcardLabel, reducedName, fmt.Errorf("expected wildcard to only be present in left-most domain label")
+		}
+	}
+
+	return wildcardLabel, reducedName, nil
 }
