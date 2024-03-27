@@ -143,6 +143,12 @@ and can be used as a drop-in replacement. Use the following command to get descr
 vault path-help ejbca/roles/name
 ```
 
+> EJBCA implements its own [role and policy system](https://doc.primekey.com/ejbca/ejbca-operations/ejbca-ca-concept-guide/end-entities-overview/end-entity-profiles-overview). Users should be advised that even if Certificate Enrollment with the EJBCA Vault PKI Engine is valid against the Vault role, it may still be rejected by EJBCA due to EJBCA's own role and policy system.
+>
+> Concequentially, there may be differences between how the EJBCA Vault PKI Engine and the built-in Vault PKI Engine handle certificate issuance and validation. If you are using the EJBCA Vault PKI Engine as a drop-in replacement for the built-in Vault PKI Engine, it is recommended to test the EJBCA Vault PKI Engine in a non-production environment before deploying it to production.
+> 
+> Please submit an issue if you encounter any differences between the EJBCA Vault PKI Engine and the built-in Vault PKI Engine.
+
 The following example creates a basic role that can be used for issuance:
 ```shell
 vault write ejbca/roles/example-dot-com \
@@ -192,9 +198,10 @@ vault write ejbca/issue/example-dot-com \
 ### Revoke Paths
 The following path can be used to revoke certificates. Either the `serial_number` or `certificate` parameter is required.
 
-| Path   | Required Parameters                | Description                                                     | Help Path                      |
-|--------|------------------------------------|-----------------------------------------------------------------|--------------------------------|
-| revoke | serial_number _or_ certificate PEM | Revokes a certificate by serial number _or_ certificate itself. | `vault path-help ejbca/revoke` |
+| Path            | Required Parameters                                              | Description                                                              | Help Path                               |
+|-----------------|------------------------------------------------------------------|--------------------------------------------------------------------------|-----------------------------------------|
+| revoke          | serial_number _or_ certificate PEM                               | Revokes a certificate by serial number _or_ certificate itself.          | `vault path-help ejbca/revoke`          |
+| revoke-with-key | certificate private key _and_ serial_number _or_ certificate PEM | Revokes a certificate only if the user proves they have the private key. | `vault path-help ejbca/revoke-with-key` |
 
 > **Note:** The EJBCA PKI Secrets Engine cannot revoke certificates that were not issued by the EJBCA PKI Secrets Engine. That is, the certificate must exist in the Secrets Engine's backend.
 
