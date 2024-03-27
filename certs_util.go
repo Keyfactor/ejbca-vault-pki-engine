@@ -1307,7 +1307,11 @@ func serializePemPrivateKey(privateKey string) (crypto.PrivateKey, error) {
 		// If we failed to parse the private key as PKCS#8, try to parse it as PKCS#1
 		key, err = x509.ParsePKCS1PrivateKey(block.Bytes)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse private key as PKCS#8 or PKCS#1: %v", err)
+            // If we failed to parse the key as PKCS#1, try to parse it as ECC
+            key, err = x509.ParseECPrivateKey(block.Bytes)
+            if err != nil {
+                return nil, fmt.Errorf("failed to parse private key as PKCS#8, PKCS#1, or ECC: %v", err)
+            }
 		}
 	}
 
