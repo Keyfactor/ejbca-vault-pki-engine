@@ -24,11 +24,11 @@ EJBCA Vault PKI Secrets Engine is open source and supported on best effort level
 
 <!--EJBCA Community logo -->
 <a href="https://ejbca.org">
-    <img src="community-ejbca.png?raw=true)" alt="EJBCA logo" title="EJBCA" height="70" />
+    <img src=".github/images/community-ejbca.png?raw=true)" alt="EJBCA logo" title="EJBCA" height="70" />
 </a>
 <!--EJBCA Enterprise logo -->
 <a href="https://www.keyfactor.com/products/ejbca-enterprise/">
-    <img src="keyfactor-ejbca-enterprise.png?raw=true)" alt="EJBCA logo" title="EJBCA" height="70" />
+    <img src=".github/images/keyfactor-ejbca-enterprise.png?raw=true)" alt="EJBCA logo" title="EJBCA" height="70" />
 </a>
 
 <!--- Insert the Tool Name in the main heading! --->
