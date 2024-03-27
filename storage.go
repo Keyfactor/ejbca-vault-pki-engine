@@ -32,8 +32,8 @@ type storageContext struct {
 }
 
 func (b *ejbcaBackend) makeStorageContext(ctx context.Context, s logical.Storage) *storageContext {
-    logger := b.Logger().Named("ejbcaBackend.makeStorageContext")
-    logger.Debug("Creating storage context")
+	logger := b.Logger().Named("ejbcaBackend.makeStorageContext")
+	logger.Debug("Creating storage context")
 
 	return &storageContext{
 		Context: ctx,
@@ -79,7 +79,7 @@ func (sc *storageContext) Config() *configStorageContext {
 }
 
 func (c *configStorageContext) putConfig(config *ejbcaConfig) error {
-    c.storageContext.Backend.Logger().Named("configStorageContext.putConfig").Debug("Putting configuration into storage")
+	c.storageContext.Backend.Logger().Named("configStorageContext.putConfig").Debug("Putting configuration into storage")
 	entry, err := logical.StorageEntryJSON(configStoragePath, config)
 	if err != nil {
 		return errutil.InternalError{Err: fmt.Sprintf("error creating storage entry for configuration: %v", err)}
@@ -88,43 +88,43 @@ func (c *configStorageContext) putConfig(config *ejbcaConfig) error {
 }
 
 func (c *configStorageContext) getConfig() (*ejbcaConfig, error) {
-    logger := c.storageContext.Backend.Logger().Named("configStorageContext.getConfig")
-    logger.Debug("Getting configuration from storage")
+	logger := c.storageContext.Backend.Logger().Named("configStorageContext.getConfig")
+	logger.Debug("Getting configuration from storage")
 
 	entry, err := c.storageContext.Storage.Get(c.storageContext.Context, configStoragePath)
 	if err != nil {
-        return nil, errutil.InternalError{Err: fmt.Sprintf("error reading root configuration: %v", err)} 
+		return nil, errutil.InternalError{Err: fmt.Sprintf("error reading root configuration: %v", err)}
 	}
 
 	if entry == nil {
-        logger.Trace("No configuration found in storage")
+		logger.Trace("No configuration found in storage")
 		return nil, nil
 	}
 
 	config := new(ejbcaConfig)
 	if err := entry.DecodeJSON(&config); err != nil {
-		return nil, errutil.InternalError{Err: fmt.Sprintf("error decoding root configuration: %v", err)} 
+		return nil, errutil.InternalError{Err: fmt.Sprintf("error decoding root configuration: %v", err)}
 	}
 
-    if config.Hostname == "" {
-        logger.Error("Hostname not found in configuration")
-        return nil, errutil.InternalError{Err: "hostname not found in configuration"}
-    }
-    if config.ClientCert == "" {
-        logger.Error("Client certificate not found in configuration")
-        return nil, errutil.InternalError{Err: "client certificate not found in configuration"}
-    }
-    if config.ClientKey == "" {
-        logger.Error("Client key not found in configuration")
-        return nil, errutil.InternalError{Err: "client key not found in configuration"}
-    }
+	if config.Hostname == "" {
+		logger.Error("Hostname not found in configuration")
+		return nil, errutil.InternalError{Err: "hostname not found in configuration"}
+	}
+	if config.ClientCert == "" {
+		logger.Error("Client certificate not found in configuration")
+		return nil, errutil.InternalError{Err: "client certificate not found in configuration"}
+	}
+	if config.ClientKey == "" {
+		logger.Error("Client key not found in configuration")
+		return nil, errutil.InternalError{Err: "client key not found in configuration"}
+	}
 
-    logger.Trace("Returning configuration from storage")
+	logger.Trace("Returning configuration from storage")
 	return config, nil
 }
 
 func (c *configStorageContext) deleteConfig() error {
-    c.storageContext.Backend.Logger().Named("deleteConfig").Debug("Deleting configuration from storage")
+	c.storageContext.Backend.Logger().Named("deleteConfig").Debug("Deleting configuration from storage")
 	return c.storageContext.Storage.Delete(c.storageContext.Context, configStoragePath)
 }
 
@@ -156,16 +156,16 @@ type revokedCertEntry struct {
 }
 
 func (c *certStorageContext) putCertEntry(certEntry *certEntry) error {
-    c.storageContext.Backend.Logger().Named("putCertEntry").Debug("Putting certificate entry into storage", "serial_number", certEntry.SerialNumber)
+	c.storageContext.Backend.Logger().Named("putCertEntry").Debug("Putting certificate entry into storage", "serial_number", certEntry.SerialNumber)
 	entry, err := logical.StorageEntryJSON("certs/"+normalizeSerial(certEntry.SerialNumber), certEntry)
 	if err != nil {
-        return errutil.InternalError{Err: fmt.Sprintf("error creating storage entry for certificate with sn %s: %v", certEntry.SerialNumber, err)} 
+		return errutil.InternalError{Err: fmt.Sprintf("error creating storage entry for certificate with sn %s: %v", certEntry.SerialNumber, err)}
 	}
 	return c.storageContext.Storage.Put(c.storageContext.Context, entry)
 }
 
 func (c *certStorageContext) putRevokedCertEntry(entry *revokedCertEntry) error {
-    c.storageContext.Backend.Logger().Named("putRevokedCertEntry").Debug("Putting revoked certificate entry into storage", "serial_number", entry.SerialNumber)
+	c.storageContext.Backend.Logger().Named("putRevokedCertEntry").Debug("Putting revoked certificate entry into storage", "serial_number", entry.SerialNumber)
 	storageEntry, err := logical.StorageEntryJSON("revoked/"+normalizeSerial(entry.SerialNumber), entry)
 	if err != nil {
 		return fmt.Errorf("error creating storage entry for revoked certificate with sn %s: %w", entry.SerialNumber, err)
@@ -174,12 +174,12 @@ func (c *certStorageContext) putRevokedCertEntry(entry *revokedCertEntry) error 
 }
 
 func (c *certStorageContext) fetchCertBundleBySerial(serial string) (*certutil.ParsedCertBundle, error) {
-    logger := c.storageContext.Backend.Logger().Named("certStorageContext.fetchCertBundleBySerial")
+	logger := c.storageContext.Backend.Logger().Named("certStorageContext.fetchCertBundleBySerial")
 
 	hyphenSerial := normalizeSerial(serial)
 	path := "certs/" + hyphenSerial
 
-    logger.Trace("Fetching certificate from storage", "path", path)
+	logger.Trace("Fetching certificate from storage", "path", path)
 
 	storageEntry, err := c.storageContext.Storage.Get(c.storageContext.Context, path)
 	if err != nil {
@@ -189,13 +189,13 @@ func (c *certStorageContext) fetchCertBundleBySerial(serial string) (*certutil.P
 	var parsedStorageEntry certEntry
 
 	if storageEntry != nil && storageEntry.Value != nil && len(storageEntry.Value) > 0 {
-        logger.Trace("Certificate found in storage", "path", path)
+		logger.Trace("Certificate found in storage", "path", path)
 
 		err = storageEntry.DecodeJSON(&parsedStorageEntry)
 		if err != nil {
 			return nil, errutil.InternalError{Err: fmt.Sprintf("error decoding certificate entry with sn %s: %s", path, err)}
 		}
-	} 
+	}
 
 	if parsedStorageEntry.Certificate == "" {
 		return nil, errutil.InternalError{Err: "returned certificate bytes were empty"}
@@ -213,7 +213,7 @@ func (c *certStorageContext) fetchCertBundleBySerial(serial string) (*certutil.P
 			caCertBundle.CAChain = append(caCertBundle.CAChain, string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Bytes})))
 		}
 
-        logger.Trace(fmt.Sprintf("Constructed CA chain for certificate with sn %q with %d certificates", serial, len(caCertBundle.CAChain)))
+		logger.Trace(fmt.Sprintf("Constructed CA chain for certificate with sn %q with %d certificates", serial, len(caCertBundle.CAChain)))
 	}
 
 	cert := &certutil.CertBundle{
@@ -232,15 +232,15 @@ func (c *certStorageContext) fetchCertBundleBySerial(serial string) (*certutil.P
 	if err != nil {
 		return nil, errutil.InternalError{Err: fmt.Sprintf("error parsing certificate bundle for certificate with sn %s: %s", path, err)}
 	}
-    
-    logger.Trace("Returning certificate bundle from storage", "path", path)
+
+	logger.Trace("Returning certificate bundle from storage", "path", path)
 
 	return bundle, nil
 }
 
 func (c *certStorageContext) fetchRevokedCertBySerial(serial string) (*revokedCertEntry, error) {
-    logger := c.storageContext.Backend.Logger().Named("certStorageContext.fetchRevokedCertBySerial")
-    logger.Debug("Fetching revoked certificate from storage", "serial_number", serial)
+	logger := c.storageContext.Backend.Logger().Named("certStorageContext.fetchRevokedCertBySerial")
+	logger.Debug("Fetching revoked certificate from storage", "serial_number", serial)
 
 	path := revokedPath + normalizeSerial(serial)
 
@@ -252,7 +252,7 @@ func (c *certStorageContext) fetchRevokedCertBySerial(serial string) (*revokedCe
 	var parsedStorageEntry revokedCertEntry
 
 	if storageEntry != nil && storageEntry.Value != nil && len(storageEntry.Value) > 0 {
-        logger.Trace("Revoked certificate found in storage", "path", path)
+		logger.Trace("Revoked certificate found in storage", "path", path)
 
 		err = storageEntry.DecodeJSON(&parsedStorageEntry)
 		if err != nil {
@@ -260,19 +260,19 @@ func (c *certStorageContext) fetchRevokedCertBySerial(serial string) (*revokedCe
 		}
 	}
 
-    logger.Trace("Returning revoked certificate from storage", "path", path)
+	logger.Trace("Returning revoked certificate from storage", "path", path)
 
 	return &parsedStorageEntry, nil
 }
 
 func (c *certStorageContext) deleteCert(serialNumber string) error {
-    c.storageContext.Backend.Logger().Named("certStorageContext.deleteCert").Debug("Deleting certificate from storage", "serial_number", serialNumber)
+	c.storageContext.Backend.Logger().Named("certStorageContext.deleteCert").Debug("Deleting certificate from storage", "serial_number", serialNumber)
 	return c.storageContext.Storage.Delete(c.storageContext.Context, "certs/"+normalizeSerial(serialNumber))
 }
 
 func (c *certStorageContext) listRevokedCerts() ([]string, error) {
-    logger := c.storageContext.Backend.Logger().Named("certStorageContext.listRevokedCerts")
-    logger.Debug("Fetching list of revoked certificates from storage", "path", revokedPath)
+	logger := c.storageContext.Backend.Logger().Named("certStorageContext.listRevokedCerts")
+	logger.Debug("Fetching list of revoked certificates from storage", "path", revokedPath)
 
 	list, err := c.storageContext.Storage.List(c.storageContext.Context, revokedPath)
 	if err != nil {
@@ -283,15 +283,15 @@ func (c *certStorageContext) listRevokedCerts() ([]string, error) {
 	for i, serial := range list {
 		list[i] = denormalizeSerial(serial)
 	}
-    
-    logger.Trace(fmt.Sprintf("Returning list of %d revoked certificates from storage", len(list)))
+
+	logger.Trace(fmt.Sprintf("Returning list of %d revoked certificates from storage", len(list)))
 
 	return list, err
 }
 
 func (c *certStorageContext) listCerts() ([]string, error) {
-    logger := c.storageContext.Backend.Logger().Named("certStorageContext.listCerts")
-    logger.Debug("Fetching list of certificates from storage", "path", "certs/")
+	logger := c.storageContext.Backend.Logger().Named("certStorageContext.listCerts")
+	logger.Debug("Fetching list of certificates from storage", "path", "certs/")
 
 	list, err := c.storageContext.Storage.List(c.storageContext.Context, "certs/")
 	if err != nil {
@@ -303,7 +303,7 @@ func (c *certStorageContext) listCerts() ([]string, error) {
 		list[i] = denormalizeSerial(serial)
 	}
 
-    logger.Trace(fmt.Sprintf("Returning list of %d certificates from storage", len(list)))
+	logger.Trace(fmt.Sprintf("Returning list of %d certificates from storage", len(list)))
 
 	return list, err
 }
