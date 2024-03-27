@@ -46,13 +46,16 @@ func TestPathIssueSign(t *testing.T) {
 	maxTTL, _ := time.ParseDuration("1h")
 	notBeforeDuration, _ := time.ParseDuration("15m")
 	var issueSignRole = map[string]interface{}{
-		"max_ttl":        int(maxTTL.Seconds()),
-		"ttl":            int(notBeforeDuration.Seconds()),
-		"key_type":       "rsa",
-		"key_bits":       2048,
-		"signature_bits": 256,
-		"use_pss":        false,
-		"require_cn":     false,
+		"max_ttl":            int(maxTTL.Seconds()),
+		"ttl":                int(notBeforeDuration.Seconds()),
+		"key_type":           "rsa",
+		"key_bits":           2048,
+		"signature_bits":     256,
+		"use_pss":            false,
+		"require_cn":         false,
+		"allow_bare_domains": true,
+		"allow_subdomains":   true,
+		"allowed_domains":    "example.com,EJBCAVaultTest.com",
 	}
 
 	err = testRoleCreate(t, b, reqStorage, issueSignRole)
@@ -101,7 +104,7 @@ func TestPathIssueSign(t *testing.T) {
 
 func testSign(t *testing.T, b logical.Backend, s logical.Storage, path string) error {
 	// Generate CSR
-	csr, err := generateCSR("CN=EJBCAVaultTest_" + generateRandomString(16))
+	csr, err := generateCSR(fmt.Sprintf("CN=%s.EJBCAVaultTest.com", generateRandomString(16)))
 	if err != nil {
 		return err
 	}
@@ -131,14 +134,13 @@ func testSign(t *testing.T, b logical.Backend, s logical.Storage, path string) e
 }
 
 func testIssue(t *testing.T, b logical.Backend, s logical.Storage, path string) error {
-	//cn := "EJBCAVaultTest_" + generateRandomString(16)
 	resp, err := b.HandleRequest(context.Background(), &logical.Request{
 		Operation: logical.UpdateOperation,
 		Path:      path,
 		Storage:   s,
 		Data: map[string]interface{}{
-            "common_name": "example.com",
-			"alt_names": "example.com",
+			"common_name": "example.com",
+			"alt_names":   "example.com",
 		},
 	})
 
