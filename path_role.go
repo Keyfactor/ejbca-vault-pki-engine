@@ -50,12 +50,6 @@ value or the value of max_ttl, whichever is shorter.`,
 				Description: `The maximum allowed lease duration. If not
 set, defaults to the system maximum lease TTL.`,
 			},
-			"allow_token_displayname": {
-				Type:     framework.TypeBool,
-				Required: true,
-				Description: `Whether to allow "localhost" and "localdomain"
-as a valid common name in a request, independent of allowed_domains value.`,
-			},
 
 			"allow_localhost": {
 				Type:     framework.TypeBool,
@@ -74,12 +68,7 @@ common name, DNS-typed SAN entries, and Email-typed SAN entries of
 certificates. See the documentation for more information. This parameter
 accepts a comma-separated string or list of domains.`,
 			},
-			"allowed_domains_template": {
-				Type:     framework.TypeBool,
-				Required: true,
-				Description: `If set, Allowed domains can be specified using identity template policies.
-				Non-templated domains are also permitted.`,
-			},
+
 			"allow_bare_domains": {
 				Type:     framework.TypeBool,
 				Required: true,
@@ -385,15 +374,15 @@ serviced by this role.`,
 				Type:        framework.TypeString,
 				Description: `The name of a Certificate Profile in EJBCA that certificates will be issued against.`,
 			},
-            "end_entity_name": {
-                Type:        framework.TypeString,
-                Description: `The name of the End Entity that will be created or used in EJBCA for certificate issuance. The value can be one of the following:
+			"end_entity_name": {
+				Type: framework.TypeString,
+				Description: `The name of the End Entity that will be created or used in EJBCA for certificate issuance. The value can be one of the following:
    * cn: Uses the Common Name from the CSR's Distinguished Name.
    * dns: Uses the first DNS Name from the CSR's Subject Alternative Names (SANs).
    * uri: Uses the first URI from the CSR's Subject Alternative Names (SANs).
    * ip: Uses the first IP Address from the CSR's Subject Alternative Names (SANs).
    * Custom Value: Any other string will be directly used as the End Entity Name.`,
-            },
+			},
 			"account_binding_id": {
 				Type:        framework.TypeString,
 				Description: `Account binding ID to use for requests`,
@@ -413,10 +402,8 @@ type roleEntry struct {
 	AllowedBaseDomain             string        `json:"allowed_base_domain"`
 	AllowedDomainsOld             string        `json:"allowed_domains,omitempty"`
 	AllowedDomains                []string      `json:"allowed_domains_list"`
-	AllowedDomainsTemplate        bool          `json:"allowed_domains_template"`
 	AllowBaseDomain               bool          `json:"allow_base_domain"`
 	AllowBareDomains              bool          `json:"allow_bare_domains"`
-	AllowTokenDisplayName         bool          `json:"allow_token_displayname"`
 	AllowSubdomains               bool          `json:"allow_subdomains"`
 	AllowGlobDomains              bool          `json:"allow_glob_domains"`
 	AllowWildcardCertificates     *bool         `json:"allow_wildcard_certificates,omitempty"`
@@ -463,7 +450,7 @@ type roleEntry struct {
 	Issuer                        string        `json:"issuer"` // Issuer is the EJBCA CA name
 	EndEntityProfileName          string        `json:"end_entity_profile_name"`
 	CertificateProfileName        string        `json:"certificate_profile_name"`
-    EndEntityName                 string        `json:"end_entity_name"`
+	EndEntityName                 string        `json:"end_entity_name"`
 	AccountBindingId              string        `json:"account_binding_id"`
 }
 
@@ -556,12 +543,6 @@ allow_subdomains, and allow_glob_domains to determine matches for the
 common name, DNS-typed SAN entries, and Email-typed SAN entries of
 certificates. See the documentation for more information. This parameter
 accepts a comma-separated string or list of domains.`,
-				},
-				"allowed_domains_template": {
-					Type: framework.TypeBool,
-					Description: `If set, Allowed domains can be specified using identity template policies.
-				Non-templated domains are also permitted.`,
-					Default: false,
 				},
 				"allow_bare_domains": {
 					Type: framework.TypeBool,
@@ -927,15 +908,15 @@ serviced by this role.`,
 					Description: `The name of the EJBCA Certificate Profile to use when creating the certificate.`,
 					Default:     "",
 				},
-                "end_entity_name": {
-                    Type:        framework.TypeString,
-                    Description: `The name of the End Entity that will be created or used in EJBCA for certificate issuance. The value can be one of the following:
+				"end_entity_name": {
+					Type: framework.TypeString,
+					Description: `The name of the End Entity that will be created or used in EJBCA for certificate issuance. The value can be one of the following:
        * cn: Uses the Common Name from the CSR's Distinguished Name.
        * dns: Uses the first DNS Name from the CSR's Subject Alternative Names (SANs).
        * uri: Uses the first URI from the CSR's Subject Alternative Names (SANs).
        * ip: Uses the first IP Address from the CSR's Subject Alternative Names (SANs).
        * Custom Value: Any other string will be directly used as the End Entity Name.`,
-                },
+				},
 				"account_binding_id": {
 					Type:        framework.TypeString,
 					Description: `The name of the EJBCA Account Binding to use when creating the certificate.`,
@@ -1012,7 +993,7 @@ func (b *ejbcaBackend) pathRoleRead(ctx context.Context, req *logical.Request, d
 }
 
 func (b *ejbcaBackend) pathRoleCreate(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-    logger := b.Logger().Named("pathRoleCreate")
+	logger := b.Logger().Named("pathRoleCreate")
 
 	var err error
 	name := data.Get("name").(string)
@@ -1023,7 +1004,6 @@ func (b *ejbcaBackend) pathRoleCreate(ctx context.Context, req *logical.Request,
 		TTL:                           time.Duration(data.Get("ttl").(int)) * time.Second,
 		AllowLocalhost:                data.Get("allow_localhost").(bool),
 		AllowedDomains:                data.Get("allowed_domains").([]string),
-		AllowedDomainsTemplate:        data.Get("allowed_domains_template").(bool),
 		AllowBareDomains:              data.Get("allow_bare_domains").(bool),
 		AllowSubdomains:               data.Get("allow_subdomains").(bool),
 		AllowGlobDomains:              data.Get("allow_glob_domains").(bool),
@@ -1066,7 +1046,7 @@ func (b *ejbcaBackend) pathRoleCreate(ctx context.Context, req *logical.Request,
 		Issuer:                        data.Get("issuer_ref").(string),
 		EndEntityProfileName:          data.Get("end_entity_profile_name").(string),
 		CertificateProfileName:        data.Get("certificate_profile_name").(string),
-        EndEntityName:                 data.Get("end_entity_name").(string),
+		EndEntityName:                 data.Get("end_entity_name").(string),
 		AccountBindingId:              data.Get("account_binding_id").(string),
 	}
 
@@ -1102,7 +1082,7 @@ func (b *ejbcaBackend) pathRoleCreate(ctx context.Context, req *logical.Request,
 		}
 	}
 
-    logger.Debug("Validating role entry before storing", "entry", entry)
+	logger.Debug("Validating role entry before storing", "entry", entry)
 	resp, err := entry.validate(b.makeStorageContext(ctx, req.Storage))
 	if err != nil {
 		return nil, err
@@ -1143,9 +1123,7 @@ func (r *roleEntry) ToResponseData() map[string]interface{} {
 		"max_ttl":                            int64(r.MaxTTL.Seconds()),
 		"allow_localhost":                    r.AllowLocalhost,
 		"allowed_domains":                    r.AllowedDomains,
-		"allowed_domains_template":           r.AllowedDomainsTemplate,
 		"allow_bare_domains":                 r.AllowBareDomains,
-		"allow_token_displayname":            r.AllowTokenDisplayName,
 		"allow_subdomains":                   r.AllowSubdomains,
 		"allow_glob_domains":                 r.AllowGlobDomains,
 		"allow_wildcard_certificates":        r.AllowWildcardCertificates,
@@ -1343,7 +1321,7 @@ func (r *roleStorageContext) getRole(name string) (*roleEntry, error) {
 }
 
 func (r *roleEntry) validate(sc *storageContext) (*logical.Response, error) {
-    logger := sc.Backend.Logger().Named("roleEntry.validate")
+	logger := sc.Backend.Logger().Named("roleEntry.validate")
 	logger.Debug("Validating role")
 
 	resp := &logical.Response{}
@@ -1385,21 +1363,21 @@ func (r *roleEntry) validate(sc *storageContext) (*logical.Response, error) {
 	// resolve it at use time. This allows values such as `default` or other
 	// user-assigned names to "float" and change over time.
 	if r.Issuer == "" {
-        logger.Trace("Issuer not set, setting to default CA name", "defaultCAName", config.DefaultCAName)
+		logger.Trace("Issuer not set, setting to default CA name", "defaultCAName", config.DefaultCAName)
 		r.Issuer = config.DefaultCAName
 	}
 	if r.EndEntityProfileName == "" {
-        logger.Trace("EndEntityProfileName not set, setting to default EndEntityProfileName", "defaultEndEntityProfileName", config.DefaultEndEntityProfileName)
+		logger.Trace("EndEntityProfileName not set, setting to default EndEntityProfileName", "defaultEndEntityProfileName", config.DefaultEndEntityProfileName)
 		r.EndEntityProfileName = config.DefaultEndEntityProfileName
 	}
 	if r.CertificateProfileName == "" {
-        logger.Trace("CertificateProfileName not set, setting to default CertificateProfileName", "defaultCertificateProfileName", config.DefaultCertificateProfileName)
+		logger.Trace("CertificateProfileName not set, setting to default CertificateProfileName", "defaultCertificateProfileName", config.DefaultCertificateProfileName)
 		r.CertificateProfileName = config.DefaultCertificateProfileName
 	}
-    if r.EndEntityName == "" {
-        logger.Trace("EndEntityName not set, setting to default EndEntityName", "defaultEndEntityName", config.DefaultEndEntityName)
-        r.EndEntityName = config.DefaultEndEntityName
-    }
+	if r.EndEntityName == "" {
+		logger.Trace("EndEntityName not set, setting to default EndEntityName", "defaultEndEntityName", config.DefaultEndEntityName)
+		r.EndEntityName = config.DefaultEndEntityName
+	}
 
 	err = sc.CA().resolveIssuerReference(r.Issuer)
 	if err != nil {
