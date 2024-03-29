@@ -99,7 +99,7 @@ func newClient(config *ejbcaConfig) (*ejbcaClient, error) {
 }
 
 func (e *ejbcaClient) createErrorFromEjbcaErr(b *ejbcaBackend, detail string, err error) error {
-    logger := b.Logger().Named("ejbcaClient.createErrorFromEjbcaErr")
+	logger := b.Logger().Named("ejbcaClient.createErrorFromEjbcaErr")
 	if err == nil {
 		return nil
 	}
@@ -110,7 +110,7 @@ func (e *ejbcaClient) createErrorFromEjbcaErr(b *ejbcaBackend, detail string, er
 		errString += fmt.Sprintf(" - EJBCA API returned error %s", bodyError.Body())
 	}
 
-    logger.Error("EJBCA returned an error!", "error", errString)
+	logger.Error("EJBCA returned an error!", "error", errString)
 
 	return errutil.InternalError{Err: errString}
 }

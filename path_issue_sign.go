@@ -419,19 +419,19 @@ RSA key-type issuer. Defaults to false.`,
 }
 
 func (b *ejbcaBackend) pathIssue(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-    b.Logger().Named("ejbcaBackend.pathIssue").Debug("Issue path called")
+	b.Logger().Named("ejbcaBackend.pathIssue").Debug("Issue path called")
 	builder := &issueSignResponseBuilder{}
 	return builder.Config(b.makeStorageContext(ctx, req.Storage), req.Path, data).IssueCertificate()
 }
 
 func (b *ejbcaBackend) pathSign(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-    b.Logger().Named("ejbcaBackend.pathSign").Debug("Sign path called")
+	b.Logger().Named("ejbcaBackend.pathSign").Debug("Sign path called")
 	builder := &issueSignResponseBuilder{}
 	return builder.Config(b.makeStorageContext(ctx, req.Storage), req.Path, data).SignCertificate()
 }
 
 func (b *ejbcaBackend) pathSignVerbatim(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-    b.Logger().Named("ejbcaBackend.pathSignVerbatim").Debug("Sign Verbatim path called")
+	b.Logger().Named("ejbcaBackend.pathSignVerbatim").Debug("Sign Verbatim path called")
 	builder := &issueSignResponseBuilder{}
 	return builder.Config(b.makeStorageContext(ctx, req.Storage), req.Path, data).SignCertificate()
 }
