@@ -89,7 +89,7 @@ sudo mv ejbca-vault-pki-engine </path/to/vault/plugins>
 
 Register SHA256 checksum of the plugin with Vault.
 ```shell
-vault write sys/plugins/catalog/secret/ejbca-vault-pki-engine sha_256=$SHA256 command="ejbca-vault-pki-engine"
+vault write sys/plugins/catalog/secret/ejbca-vault-pki-engine sha_256=$SHA256 command="ejbca-vault-pki-engine" version="v1.2.0"
 ```
 
 Mount the secrets engine and choose a prefix for the path (recommended is `ejbca`).
