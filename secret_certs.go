@@ -76,5 +76,5 @@ func (b *ejbcaBackend) secretCertsRevoke(ctx context.Context, req *logical.Reque
 		return nil, fmt.Errorf("error parsing certificate: %w", err)
 	}
 
-	return revokeCert(sc, cert.SerialNumber.String())
+	return revokeCertWithPrivateKey(sc, cert.SerialNumber.String(), nil)
 }
