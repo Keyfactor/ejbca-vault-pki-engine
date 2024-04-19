@@ -14,7 +14,6 @@ package ejbca_vault_pki_engine
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 
 	"github.com/hashicorp/vault/sdk/framework"
@@ -109,7 +108,7 @@ func pathRevokeWithKey(b *ejbcaBackend) []*framework.Path {
 
 			Operations: map[logical.Operation]framework.OperationHandler{
 				logical.UpdateOperation: &framework.PathOperation{
-					Callback: b.revokeCertificateWithPrivateKey,
+					Callback: b.revokeCertificate,
 					Responses: map[int][]framework.Response{
 						http.StatusOK: {{
 							Description: "OK",
@@ -142,66 +141,9 @@ func pathRevokeWithKey(b *ejbcaBackend) []*framework.Path {
 }
 
 func (b *ejbcaBackend) revokeCertificate(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	logger := b.Logger().Named("ejbcaBackend.revokeCertificate")
-	sc := b.makeStorageContext(ctx, req.Storage)
-
-	serial, serialPresent := data.GetOk("serial_number")
-	certificate, certPresent := data.GetOk("certificate")
-	if !serialPresent && !certPresent {
-		return logical.ErrorResponse("The serial number or certificate to revoke must be provided."), nil
-	} else if serialPresent && certPresent {
-		return logical.ErrorResponse("Must provide either the certificate or the serial to revoke; not both."), nil
-	}
-
-	if certPresent {
-		logger.Trace("Certificate present with request, serializing as PEM")
-		cert, err := serializePemCert(certificate.(string))
-		if err != nil {
-			return nil, err
-		}
-
-		serial = cert.SerialNumber.String()
-	}
-
-	logger.Debug("Revoking certificate", "serial", serial, "certPresent", certPresent)
-	return revokeCert(sc, serial.(string))
-}
-
-func (b *ejbcaBackend) revokeCertificateWithPrivateKey(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	logger := b.Logger().Named("ejbcaBackend.revokeCertificateWithPrivateKey")
-	sc := b.makeStorageContext(ctx, req.Storage)
-
-	serial, serialPresent := data.GetOk("serial_number")
-	certificate, certPresent := data.GetOk("certificate")
-	privateKey, keyPresent := data.GetOk("private_key")
-
-	if !serialPresent && !certPresent {
-		return logical.ErrorResponse("The serial number or certificate to revoke must be provided."), nil
-	} else if serialPresent && certPresent {
-		return logical.ErrorResponse("Must provide either the certificate or the serial to revoke; not both."), nil
-	}
-
-	if !keyPresent {
-		return logical.ErrorResponse("The private key must be provided to revoke a certificate."), nil
-	}
-
-	if certPresent {
-		logger.Trace("Certificate present with request, serializing as PEM")
-		cert, err := serializePemCert(certificate.(string))
-		if err != nil {
-			return nil, fmt.Errorf("Error serializing certificate: %s", err)
-		}
-
-		serial = cert.SerialNumber.String()
-	}
-
-	key, err := serializePemPrivateKey(privateKey.(string))
-	if err != nil {
-		return nil, fmt.Errorf("Error serializing private key: %s", err)
-	}
-
-	logger.Debug("Revoking certificate", "serial", serial, "certPresent", certPresent)
-	return revokeCertWithPrivateKey(sc, serial.(string), key)
+	b.Logger().Named("ejbcaBackend.revokeCertificate").Debug("Path Revoke called")
+	builder := &revokeBuilder{}
+	return builder.Config(b.makeStorageContext(ctx, req.Storage), req.Path, data).RevokeCertificate()
 }
 
 const pathRevokeHelpSyn = `
