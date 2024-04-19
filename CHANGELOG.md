@@ -1,3 +1,7 @@
+# v1.3.0
+## Fixes
+* Certificate revocation with the `/revoke*` paths now support revocation of certificates not in local Engine storage if a certificate is provided. Revoked certificates are stored in the revoked storage regardless of the initial role configuration used to issue the certificate.
+
 # v1.2.0
 ## Features
 * Create `revoke-with-key` path to revoke certificate only if user proves they have the private key
