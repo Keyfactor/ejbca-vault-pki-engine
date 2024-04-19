@@ -184,24 +184,24 @@ func (b *ejbcaBackend) revokeCertificateWithPrivateKey(ctx context.Context, req 
 	if !keyPresent {
 		return logical.ErrorResponse("The private key must be provided to revoke a certificate."), nil
 	}
-
-	if certPresent {
-		logger.Trace("Certificate present with request, serializing as PEM")
-		cert, err := serializePemCert(certificate.(string))
-		if err != nil {
-			return nil, fmt.Errorf("Error serializing certificate: %s", err)
-		}
-
-		serial = cert.SerialNumber.String()
-	}
-
 	key, err := serializePemPrivateKey(privateKey.(string))
 	if err != nil {
-		return nil, fmt.Errorf("Error serializing private key: %s", err)
+		return nil, fmt.Errorf("failed serializing private key: %s", err)
 	}
 
-	logger.Debug("Revoking certificate", "serial", serial, "certPresent", certPresent)
-	return revokeCertWithPrivateKey(sc, serial.(string), key)
+	if !certPresent {
+		logger.Trace("Certificate not present with request, revoking using serial")
+		return revokeCertWithPrivateKeyBySerial(sc, serial.(string), key)
+	}
+
+	logger.Trace("Certificate present with request, serializing as PEM")
+	cert, err := serializePemCert(certificate.(string))
+	if err != nil {
+		return nil, fmt.Errorf("failed serializing certificate: %s", err)
+	}
+
+	logger.Debug("Revoking certificate using provided certificate")
+	return revokeCertWithPrivateKey(sc, cert, key)
 }
 
 const pathRevokeHelpSyn = `

@@ -102,22 +102,28 @@ func revokeCert(sc *storageContext, serialNumber string) (*logical.Response, err
 	}, nil
 }
 
-func revokeCertWithPrivateKey(sc *storageContext, serialNumber string, privateKey crypto.PrivateKey) (*logical.Response, error) {
-	logger := sc.Backend.Logger().Named("revokeCert")
+func revokeCertWithPrivateKeyBySerial(sc *storageContext, serialNumber string, privateKey crypto.PrivateKey) (*logical.Response, error) {
+	// get the certificate using the provided serial number
+	parsedBundle, err := sc.Cert().fetchCertBundleBySerial(serialNumber)
+	if err != nil {
+		return nil, err
+	}
+
+	return revokeCertWithPrivateKey(sc, parsedBundle.Certificate, privateKey)
+}
+
+func revokeCertWithPrivateKey(sc *storageContext, certificate *x509.Certificate, privateKey crypto.PrivateKey) (*logical.Response, error) {
+	logger := sc.Backend.Logger().Named("revokeCertWithPrivateKey")
 
 	client, err := sc.getClient()
 	if err != nil {
 		return nil, err
 	}
 
-	// Get the certificate
-	parsedBundle, err := sc.Cert().fetchCertBundleBySerial(serialNumber)
-	if err != nil {
-		return nil, err
-	}
+	serialNumber := strings.TrimSpace(certutil.GetHexFormatted(certificate.SerialNumber.Bytes(), ":"))
 
 	logger.Debug("Validating that private key matches certificate with serial number " + serialNumber)
-	if !privateKeyMatchesCertificate(parsedBundle.Certificate, privateKey) {
+	if !privateKeyMatchesCertificate(certificate, privateKey) {
 		return nil, errors.New("private key does not match certificate with serial number " + serialNumber)
 	}
 
@@ -126,7 +132,7 @@ func revokeCertWithPrivateKey(sc *storageContext, serialNumber string, privateKe
 	renormSerialNumber := strings.ReplaceAll(denormalizeSerial(serialNumber), ":", "")
 
 	logger.Debug("Calling EJBCA to revoke certificate with serial number " + renormSerialNumber)
-	execute, _, err := client.V1CertificateApi.RevokeCertificate(sc.Context, parsedBundle.Certificate.Issuer.String(), renormSerialNumber).Reason("CESSATION_OF_OPERATION").Execute()
+	execute, _, err := client.V1CertificateApi.RevokeCertificate(sc.Context, certificate.Issuer.String(), renormSerialNumber).Reason("CESSATION_OF_OPERATION").Execute()
 	if err != nil {
 		return nil, client.createErrorFromEjbcaErr(sc.Backend, "failed to revoke certificate with serial number "+serialNumber, err)
 	}
@@ -139,15 +145,13 @@ func revokeCertWithPrivateKey(sc *storageContext, serialNumber string, privateKe
 		return nil, err
 	}
 
-	bundle, err := parsedBundle.ToCertBundle()
-	if err != nil {
-		return nil, err
-	}
-
 	logger.Debug("Creating revoked certificate entry")
 	revokedEntry := &revokedCertEntry{
-		Certificate:       bundle.Certificate,
-		SerialNumber:      bundle.SerialNumber,
+		Certificate: strings.TrimSpace(string(pem.EncodeToMemory(&pem.Block{
+			Type:  "CERTIFICATE",
+			Bytes: certificate.Raw,
+		}))),
+		SerialNumber:      serialNumber,
 		RevocationTime:    execute.RevocationDate.Unix(),
 		RevocationTimeUTC: execute.RevocationDate.UTC(),
 	}
@@ -1088,7 +1092,7 @@ func (i *issueSignHelper) validateNames(csr *x509.CertificateRequest) error {
 	names = append(names, csr.Subject.CommonName)
 
 	for j, name := range names {
-        logger.Debug(fmt.Sprintf("Validating %s [%d/%d]", name, j+1, len(names)))
+		logger.Debug(fmt.Sprintf("Validating %s [%d/%d]", name, j+1, len(names)))
 
 		reducedName := name
 		emailDomain := reducedName
@@ -1307,11 +1311,11 @@ func serializePemPrivateKey(privateKey string) (crypto.PrivateKey, error) {
 		// If we failed to parse the private key as PKCS#8, try to parse it as PKCS#1
 		key, err = x509.ParsePKCS1PrivateKey(block.Bytes)
 		if err != nil {
-            // If we failed to parse the key as PKCS#1, try to parse it as ECC
-            key, err = x509.ParseECPrivateKey(block.Bytes)
-            if err != nil {
-                return nil, fmt.Errorf("failed to parse private key as PKCS#8, PKCS#1, or ECC: %v", err)
-            }
+			// If we failed to parse the key as PKCS#1, try to parse it as ECC
+			key, err = x509.ParseECPrivateKey(block.Bytes)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse private key as PKCS#8, PKCS#1, or ECC: %v", err)
+			}
 		}
 	}
 
