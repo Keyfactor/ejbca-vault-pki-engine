@@ -107,6 +107,7 @@ func (r *revokeBuilder) Config(sc *storageContext, path string, data *framework.
 		logger.Trace("Certificate present with request, serializing as PEM")
 		cert, err := serializePemCert(certificate.(string))
 		if err != nil {
+            logger.Error(fmt.Sprintf("Error serializing certificate: %s", err))
 			r.errorResponse = logical.ErrorResponse(fmt.Sprintf("Error serializing certificate: %s", err))
 			return r
 		}
