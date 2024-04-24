@@ -44,40 +44,161 @@ var (
 	hostnameRegex = regexp.MustCompile(`^(\*\.)?(` + labelRegex + `\.)*` + labelRegex + `\.?$`)
 )
 
-func revokeCert(sc *storageContext, serialNumber string) (*logical.Response, error) {
-	logger := sc.Backend.Logger().Named("revokeCert")
-	logger.Info("revoking certificate with serial number " + serialNumber)
+// =================== Revoke Response Builder ===================
 
-	client, err := sc.getClient()
-	if err != nil {
-		return nil, err
+type revokeBuilder struct {
+	storageContext   *storageContext
+	parsedCertBundle *certutil.ParsedCertBundle
+
+	issuerDn                   string
+	normalizedHexSerialNumber  string
+	storageContextSerialNumber string
+
+	errorResponse *logical.Response
+}
+
+func (r *revokeBuilder) Config(sc *storageContext, path string, data *framework.FieldData) *revokeBuilder {
+	r.storageContext = sc
+
+	logger := r.storageContext.Backend.Logger().Named("revokeBuilder.Config")
+
+	privateKeyRequired := strings.HasPrefix(path, "revoke-with-key")
+	logger.Debug("Checking if revoke path requires private key", "privateKeyRequired", privateKeyRequired)
+
+	serialNumberInterface, serialPresent := data.GetOk("serial_number")
+	certificate, certPresent := data.GetOk("certificate")
+	privateKey, keyPresent := data.GetOk("private_key")
+
+	if serialPresent && certPresent {
+		logger.Error("Must provide either the certificate or the serial to revoke; not both.")
+		r.errorResponse = logical.ErrorResponse("Must provide either the certificate or the serial to revoke; not both.")
+		return r
 	}
 
-	// Get the certificate
-	parsedBundle, err := sc.Cert().fetchCertBundleBySerial(serialNumber)
-	if err != nil {
-		return nil, err
+	if !serialPresent && !certPresent {
+		logger.Error("The serial number or certificate to revoke must be provided.")
+		r.errorResponse = logical.ErrorResponse("The serial number or certificate to revoke must be provided.")
+		return r
 	}
 
-	renormSerialNumber := strings.ReplaceAll(denormalizeSerial(serialNumber), ":", "")
-
-	logger.Debug("Calling EJBCA to revoke certificate with serial number " + renormSerialNumber)
-	execute, _, err := client.V1CertificateApi.RevokeCertificate(sc.Context, parsedBundle.Certificate.Issuer.String(), renormSerialNumber).Reason("CESSATION_OF_OPERATION").Execute()
-	if err != nil {
-		return nil, client.createErrorFromEjbcaErr(sc.Backend, "failed to revoke certificate with serial number "+serialNumber, err)
+	if !keyPresent && privateKeyRequired {
+		logger.Debug("Private key is required with the /revoke-with-key path")
+		r.errorResponse = logical.ErrorResponse("Private key must be provided to revoke a certificate with the /revoke-with-key-path")
+		return r
 	}
 
-	logger.Debug("Certificate with serial number " + renormSerialNumber + " revoked successfully")
+	// Serialize the certificate - it was either passed in by the user or we can retrieve it from the backend
 
-	//remove the certificate from vault.
-	err = sc.Cert().deleteCert(serialNumber)
-	if err != nil {
-		return nil, err
+	var err error
+	var parsedCertBundle *certutil.ParsedCertBundle
+	if serialPresent {
+		parsedCertBundle, err = sc.Cert().fetchCertBundleBySerial(serialNumberInterface.(string))
+		if err != nil {
+			message := fmt.Sprintf("failed to fetch certificate with serial number %s from ejbcaBackend", serialNumberInterface.(string))
+			logger.Error(message)
+			r.errorResponse = logical.ErrorResponse(message)
+			return r
+		}
+
+		logger.Debug(fmt.Sprintf("Successfully fetched certificate with serial number %s from backend", serialNumberInterface.(string)))
 	}
 
-	bundle, err := parsedBundle.ToCertBundle()
+	if certPresent {
+		logger.Trace("Certificate present with request, serializing as PEM")
+		cert, err := serializePemCert(certificate.(string))
+		if err != nil {
+            logger.Error(fmt.Sprintf("Error serializing certificate: %s", err))
+			r.errorResponse = logical.ErrorResponse(fmt.Sprintf("Error serializing certificate: %s", err))
+			return r
+		}
+
+		parsedCertBundle = &certutil.ParsedCertBundle{
+			CertificateBytes: cert.Raw,
+			Certificate:      cert,
+		}
+	}
+
+	// EJBCA revocation requires the certificate to be a hex string, but the cert is stored in the storage storageContext
+	// with colons between the bytes. Prepare these now so we don't have to later.
+
+	certBundle, err := parsedCertBundle.ToCertBundle()
 	if err != nil {
-		return nil, err
+		logger.Error("Failed to convert parsed cert bundle to cert bundle: ", err)
+		r.errorResponse = logical.ErrorResponse("Failed to convert parsed cert bundle to cert bundle: ", err)
+		return r
+	}
+	r.storageContextSerialNumber = certBundle.SerialNumber
+	r.normalizedHexSerialNumber = strings.ReplaceAll(r.storageContextSerialNumber, ":", "")
+	r.issuerDn = parsedCertBundle.Certificate.Issuer.String()
+	r.parsedCertBundle = parsedCertBundle
+
+	if privateKeyRequired {
+		key, err := serializePemPrivateKey(privateKey.(string))
+		if err != nil {
+			logger.Error("Error serializing private key: ", err)
+			r.errorResponse = logical.ErrorResponse("Error serializing private key: ", err)
+			return r
+		}
+
+		logger.Debug("Validating that private key matches certificate with serial number " + r.storageContextSerialNumber)
+
+		// We know that the certificate is present by this point
+		if !privateKeyMatchesCertificate(r.parsedCertBundle.Certificate, key) {
+			message := fmt.Sprintf("private key does not match certificate with serial number %s", r.storageContextSerialNumber)
+			logger.Error(message)
+			r.errorResponse = logical.ErrorResponse(message)
+			return r
+		}
+
+		logger.Info("Private Key matches")
+	}
+
+	return r
+}
+
+func (r *revokeBuilder) RevokeCertificate() (*logical.Response, error) {
+	if r.errorResponse != nil {
+		return r.errorResponse, nil
+	}
+
+	logger := r.storageContext.Backend.Logger().Named("revokeBuilder.RevokeCertificate")
+	logger.Info(fmt.Sprintf("revoking certificate with serial number %s [%s]", r.storageContextSerialNumber, r.normalizedHexSerialNumber))
+
+	client, err := r.storageContext.getClient()
+	if err != nil {
+		message := "Failed to get EJBCA Client from backend: " + err.Error()
+		logger.Error(message)
+		return logical.ErrorResponse(message), nil
+	}
+
+	logger.Debug(fmt.Sprintf("Calling EJBCA to revoke certificate with serial number %s [%s]", r.storageContextSerialNumber, r.normalizedHexSerialNumber))
+	execute, _, err := client.V1CertificateApi.RevokeCertificate(r.storageContext.Context, r.issuerDn, r.normalizedHexSerialNumber).Reason("CESSATION_OF_OPERATION").Execute()
+	if err != nil {
+		ejbcaErr := client.createErrorFromEjbcaErr(r.storageContext.Backend, fmt.Sprintf("failed to revoke certificate with serial number %s [%s]", r.storageContextSerialNumber, r.normalizedHexSerialNumber), err)
+		logger.Error(ejbcaErr.Error())
+		return logical.ErrorResponse(ejbcaErr.Error()), nil
+	}
+
+	logger.Debug(fmt.Sprintf("Certificate with serial number %s [%s] revoked successfully", r.storageContextSerialNumber, r.normalizedHexSerialNumber))
+
+    // We only want to remove the certificate from the backend if it is present - the user could have enrolled
+    // the certificate by other measures.
+    _, err = r.storageContext.Cert().fetchCertBundleBySerial(r.storageContextSerialNumber)
+    if err == nil {
+        logger.Debug("Deleting certificate entry from backend")
+        err = r.storageContext.Cert().deleteCert(r.storageContextSerialNumber)
+        if err != nil {
+            message := fmt.Sprintf("Failed delete certificate entry from backend: %s", err)
+            logger.Error(message)
+            return logical.ErrorResponse(message), nil
+        }
+    }
+
+	bundle, err := r.parsedCertBundle.ToCertBundle()
+	if err != nil {
+		message := fmt.Sprintf("Failed to convert parsed cert bundle to cert bundle: %s", err)
+		logger.Error(message)
+		return logical.ErrorResponse(message), nil
 	}
 
 	logger.Trace("Creating revoked certificate entry")
@@ -88,73 +209,11 @@ func revokeCert(sc *storageContext, serialNumber string) (*logical.Response, err
 		RevocationTimeUTC: execute.RevocationDate.UTC(),
 	}
 
-	err = sc.Cert().putRevokedCertEntry(revokedEntry)
+	err = r.storageContext.Cert().putRevokedCertEntry(revokedEntry)
 	if err != nil {
-		return nil, err
-	}
-
-	return &logical.Response{
-		Data: map[string]interface{}{
-			"revocation_time":         execute.RevocationDate.Unix(),
-			"revocation_time_rfc3339": execute.RevocationDate.UTC().Format(time.RFC3339Nano),
-			"state":                   "revoked",
-		},
-	}, nil
-}
-
-func revokeCertWithPrivateKey(sc *storageContext, serialNumber string, privateKey crypto.PrivateKey) (*logical.Response, error) {
-	logger := sc.Backend.Logger().Named("revokeCert")
-
-	client, err := sc.getClient()
-	if err != nil {
-		return nil, err
-	}
-
-	// Get the certificate
-	parsedBundle, err := sc.Cert().fetchCertBundleBySerial(serialNumber)
-	if err != nil {
-		return nil, err
-	}
-
-	logger.Debug("Validating that private key matches certificate with serial number " + serialNumber)
-	if !privateKeyMatchesCertificate(parsedBundle.Certificate, privateKey) {
-		return nil, errors.New("private key does not match certificate with serial number " + serialNumber)
-	}
-
-	logger.Info("Private Key matches, revoking certificate with serial number " + serialNumber)
-
-	renormSerialNumber := strings.ReplaceAll(denormalizeSerial(serialNumber), ":", "")
-
-	logger.Debug("Calling EJBCA to revoke certificate with serial number " + renormSerialNumber)
-	execute, _, err := client.V1CertificateApi.RevokeCertificate(sc.Context, parsedBundle.Certificate.Issuer.String(), renormSerialNumber).Reason("CESSATION_OF_OPERATION").Execute()
-	if err != nil {
-		return nil, client.createErrorFromEjbcaErr(sc.Backend, "failed to revoke certificate with serial number "+serialNumber, err)
-	}
-
-	logger.Debug("Certificate with serial number " + renormSerialNumber + " revoked successfully")
-
-	//remove the certificate from vault.
-	err = sc.Cert().deleteCert(serialNumber)
-	if err != nil {
-		return nil, err
-	}
-
-	bundle, err := parsedBundle.ToCertBundle()
-	if err != nil {
-		return nil, err
-	}
-
-	logger.Debug("Creating revoked certificate entry")
-	revokedEntry := &revokedCertEntry{
-		Certificate:       bundle.Certificate,
-		SerialNumber:      bundle.SerialNumber,
-		RevocationTime:    execute.RevocationDate.Unix(),
-		RevocationTimeUTC: execute.RevocationDate.UTC(),
-	}
-
-	err = sc.Cert().putRevokedCertEntry(revokedEntry)
-	if err != nil {
-		return nil, err
+		message := fmt.Sprintf("Failed to add revoked certificate entry to backend: %s", err)
+		logger.Error(message)
+		return logical.ErrorResponse(message), nil
 	}
 
 	return &logical.Response{
@@ -1088,7 +1147,7 @@ func (i *issueSignHelper) validateNames(csr *x509.CertificateRequest) error {
 	names = append(names, csr.Subject.CommonName)
 
 	for j, name := range names {
-        logger.Debug(fmt.Sprintf("Validating %s [%d/%d]", name, j+1, len(names)))
+		logger.Debug(fmt.Sprintf("Validating %s [%d/%d]", name, j+1, len(names)))
 
 		reducedName := name
 		emailDomain := reducedName
@@ -1307,11 +1366,11 @@ func serializePemPrivateKey(privateKey string) (crypto.PrivateKey, error) {
 		// If we failed to parse the private key as PKCS#8, try to parse it as PKCS#1
 		key, err = x509.ParsePKCS1PrivateKey(block.Bytes)
 		if err != nil {
-            // If we failed to parse the key as PKCS#1, try to parse it as ECC
-            key, err = x509.ParseECPrivateKey(block.Bytes)
-            if err != nil {
-                return nil, fmt.Errorf("failed to parse private key as PKCS#8, PKCS#1, or ECC: %v", err)
-            }
+			// If we failed to parse the key as PKCS#1, try to parse it as ECC
+			key, err = x509.ParseECPrivateKey(block.Bytes)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse private key as PKCS#8, PKCS#1, or ECC: %v", err)
+			}
 		}
 	}
 

@@ -53,39 +53,80 @@ func TestPathRevoke(t *testing.T) {
 
 	cn := fmt.Sprintf("%s.EJBCAVaultTest.com", generateRandomString(16))
 
-	resp, err := b.HandleRequest(context.Background(), &logical.Request{
-		Operation: logical.UpdateOperation,
-		Path:      fmt.Sprintf("issue/%s", testRoleName),
-		Storage:   reqStorage,
-		Data: map[string]interface{}{
-			"common_name": cn,
-			"alt_names":   "example.com",
-		},
-	})
-	assert.NoError(t, err)
-	assert.NotNil(t, resp)
+	t.Run("revokeWithSerialNumber", func(t *testing.T) {
+		resp, err := b.HandleRequest(context.Background(), &logical.Request{
+			Operation: logical.UpdateOperation,
+			Path:      fmt.Sprintf("issue/%s", testRoleName),
+			Storage:   reqStorage,
+			Data: map[string]interface{}{
+				"common_name": cn,
+				"alt_names":   "example.com",
+			},
+		})
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
 
-	if resp == nil {
-		t.Fatal("response is nil")
-	}
+		if resp == nil {
+			t.Fatal("response is nil")
+		}
 
-	if resp.Data == nil {
-		t.Fatal("response data is nil")
-	}
+		if resp.Data == nil {
+			t.Fatal("response data is nil")
+		}
 
-	serialNumberInterface, ok := resp.Data["serial_number"]
-	if !ok {
-		t.Fatal("serial_number not found in response")
-	}
-	serialNumber := serialNumberInterface.(string)
+		serialNumberInterface, ok := resp.Data["serial_number"]
+		if !ok {
+			t.Fatal("serial_number not found in response")
+		}
+		serialNumber := serialNumberInterface.(string)
 
-	t.Run("revoke", func(t *testing.T) {
 		resp, err = b.HandleRequest(context.Background(), &logical.Request{
 			Operation: logical.UpdateOperation,
 			Path:      "revoke",
 			Storage:   reqStorage,
 			Data: map[string]interface{}{
 				"serial_number": serialNumber,
+			},
+		})
+
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.NotNil(t, resp.Data["revocation_time"])
+	})
+
+	t.Run("revokeWithCertificate", func(t *testing.T) {
+		resp, err := b.HandleRequest(context.Background(), &logical.Request{
+			Operation: logical.UpdateOperation,
+			Path:      fmt.Sprintf("issue/%s", testRoleName),
+			Storage:   reqStorage,
+			Data: map[string]interface{}{
+				"common_name": cn,
+				"alt_names":   "example.com",
+			},
+		})
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+
+		if resp == nil {
+			t.Fatal("response is nil")
+		}
+
+		if resp.Data == nil {
+			t.Fatal("response data is nil")
+		}
+
+		certificateInterface, ok := resp.Data["certificate"]
+		if !ok {
+			t.Fatal("certificate not found in response")
+		}
+		certificate := certificateInterface.(string)
+
+		resp, err = b.HandleRequest(context.Background(), &logical.Request{
+			Operation: logical.UpdateOperation,
+			Path:      "revoke",
+			Storage:   reqStorage,
+			Data: map[string]interface{}{
+				"certificate": certificate,
 			},
 		})
 
@@ -128,34 +169,35 @@ func TestPathRevokeWithPrivateKey(t *testing.T) {
 	err = testRoleCreate(t, b, reqStorage, issueSignRole)
 	assert.NoError(t, err)
 
-	resp, err := b.HandleRequest(context.Background(), &logical.Request{
-		Operation: logical.UpdateOperation,
-		Path:      fmt.Sprintf("issue/%s", testRoleName),
-		Storage:   reqStorage,
-		Data: map[string]interface{}{
-			"common_name": cn,
-			"alt_names":   "example.com",
-		},
-	})
-	assert.NoError(t, err)
-	assert.NotNil(t, resp)
+	t.Run("revokeWithPrivateKey", func(t *testing.T) {
+		resp, err := b.HandleRequest(context.Background(), &logical.Request{
+			Operation: logical.UpdateOperation,
+			Path:      fmt.Sprintf("issue/%s", testRoleName),
+			Storage:   reqStorage,
+			Data: map[string]interface{}{
+				"common_name": cn,
+				"alt_names":   "example.com",
+			},
+		})
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
 
-	if resp == nil {
-		t.Fatal("response is nil")
-	}
+		if resp == nil {
+			t.Fatal("response is nil")
+		}
 
-	if resp.Data == nil {
-		t.Fatal("response data is nil")
-	}
+		if resp.Data == nil {
+			t.Fatal("response data is nil")
+		}
 
-	serialNumberInterface, ok := resp.Data["serial_number"]
-	if !ok {
-		t.Fatal("serial_number not found in response")
-	}
-	serialNumber := serialNumberInterface.(string)
-	privateKey := resp.Data["private_key"].(string)
+		privateKey := resp.Data["private_key"].(string)
 
-	t.Run("revoke", func(t *testing.T) {
+		serialNumberInterface, ok := resp.Data["serial_number"]
+		if !ok {
+			t.Fatal("serial_number not found in response")
+		}
+		serialNumber := serialNumberInterface.(string)
+
 		resp, err = b.HandleRequest(context.Background(), &logical.Request{
 			Operation: logical.UpdateOperation,
 			Path:      "revoke-with-key",
@@ -163,6 +205,46 @@ func TestPathRevokeWithPrivateKey(t *testing.T) {
 			Data: map[string]interface{}{
 				"serial_number": serialNumber,
 				"private_key":   privateKey,
+			},
+		})
+
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.NotNil(t, resp.Data["revocation_time"])
+	})
+
+	t.Run("revoke", func(t *testing.T) {
+		resp, err := b.HandleRequest(context.Background(), &logical.Request{
+			Operation: logical.UpdateOperation,
+			Path:      fmt.Sprintf("issue/%s", testRoleName),
+			Storage:   reqStorage,
+			Data: map[string]interface{}{
+				"common_name": cn,
+				"alt_names":   "example.com",
+			},
+		})
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+
+		if resp == nil {
+			t.Fatal("response is nil")
+		}
+
+		if resp.Data == nil {
+			t.Fatal("response data is nil")
+		}
+
+		cert := resp.Data["certificate"].(string)
+		privateKey := resp.Data["private_key"].(string)
+
+		resp, err = b.HandleRequest(context.Background(), &logical.Request{
+			Operation: logical.UpdateOperation,
+			Path:      "revoke-with-key",
+			Storage:   reqStorage,
+			Data: map[string]interface{}{
+				"certificate": cert,
+				// "serial_number": serialNumber,
+				"private_key": privateKey,
 			},
 		})
 

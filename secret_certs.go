@@ -15,6 +15,9 @@ import (
 	"context"
 	"crypto/x509"
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/hashicorp/vault/sdk/framework"
 	"github.com/hashicorp/vault/sdk/logical"
 )
@@ -77,4 +80,62 @@ func (b *ejbcaBackend) secretCertsRevoke(ctx context.Context, req *logical.Reque
 	}
 
 	return revokeCert(sc, cert.SerialNumber.String())
+}
+
+func revokeCert(sc *storageContext, serialNumber string) (*logical.Response, error) {
+	logger := sc.Backend.Logger().Named("revokeCert")
+	logger.Info("revoking certificate with serial number " + serialNumber)
+
+	client, err := sc.getClient()
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the certificate
+	parsedBundle, err := sc.Cert().fetchCertBundleBySerial(serialNumber)
+	if err != nil {
+		return nil, err
+	}
+
+	renormSerialNumber := strings.ReplaceAll(denormalizeSerial(serialNumber), ":", "")
+
+	logger.Debug("Calling EJBCA to revoke certificate with serial number " + renormSerialNumber)
+	execute, _, err := client.V1CertificateApi.RevokeCertificate(sc.Context, parsedBundle.Certificate.Issuer.String(), renormSerialNumber).Reason("CESSATION_OF_OPERATION").Execute()
+	if err != nil {
+		return nil, client.createErrorFromEjbcaErr(sc.Backend, "failed to revoke certificate with serial number "+serialNumber, err)
+	}
+
+	logger.Debug("Certificate with serial number " + renormSerialNumber + " revoked successfully")
+
+	//remove the certificate from vault.
+	err = sc.Cert().deleteCert(serialNumber)
+	if err != nil {
+		return nil, err
+	}
+
+	bundle, err := parsedBundle.ToCertBundle()
+	if err != nil {
+		return nil, err
+	}
+
+	logger.Trace("Creating revoked certificate entry")
+	revokedEntry := &revokedCertEntry{
+		Certificate:       bundle.Certificate,
+		SerialNumber:      bundle.SerialNumber,
+		RevocationTime:    execute.RevocationDate.Unix(),
+		RevocationTimeUTC: execute.RevocationDate.UTC(),
+	}
+
+	err = sc.Cert().putRevokedCertEntry(revokedEntry)
+	if err != nil {
+		return nil, err
+	}
+
+	return &logical.Response{
+		Data: map[string]interface{}{
+			"revocation_time":         execute.RevocationDate.Unix(),
+			"revocation_time_rfc3339": execute.RevocationDate.UTC().Format(time.RFC3339Nano),
+			"state":                   "revoked",
+		},
+	}, nil
 }
