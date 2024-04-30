@@ -140,10 +140,7 @@ func (sc *storageContext) getClient() (*ejbcaClient, error) {
 }
 
 func (b *ejbcaBackend) isRunningOnPerformanceStandby() bool {
-    if b.System().ReplicationState().HasState(consts.ReplicationPerformanceStandby) {
-        return true
-	}
-    return false
+    return b.System().ReplicationState().HasState(consts.ReplicationPerformanceStandby)
 }
 
 // backendHelp should contain help information for the backend
