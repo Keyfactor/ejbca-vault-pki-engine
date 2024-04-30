@@ -141,7 +141,16 @@ func pathRevokeWithKey(b *ejbcaBackend) []*framework.Path {
 }
 
 func (b *ejbcaBackend) revokeCertificate(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	b.Logger().Named("ejbcaBackend.revokeCertificate").Debug("Path Revoke called")
+    logger := b.Logger().Named("ejbcaBackend.revokeCertificate")
+    logger.Debug("Path Revoke called")
+
+    if b.isRunningOnPerformanceStandby() {
+        logger.Debug("Running on performance standby - forwarding request to active node")
+        // If we're running on performance standby, read requests are the only valid request.
+        // Forward the request to the primary node.
+        return nil, logical.ErrReadOnly 
+    }
+
 	builder := &revokeBuilder{}
 	return builder.Config(b.makeStorageContext(ctx, req.Storage), req.Path, data).RevokeCertificate()
 }
