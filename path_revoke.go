@@ -145,7 +145,7 @@ func (b *ejbcaBackend) revokeCertificate(ctx context.Context, req *logical.Reque
     logger.Debug("Path Revoke called")
 
     if b.isRunningOnPerformanceStandby() {
-        logger.Debug("Running on performance standby - forwarding request to active node")
+        logger.Debug("Running on performance standby - anticipating Vault to forward request to active node - returning backend readonly error")
         // If we're running on performance standby, read requests are the only valid request.
         // Forward the request to the primary node.
         return nil, logical.ErrReadOnly 

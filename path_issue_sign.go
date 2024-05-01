@@ -423,6 +423,7 @@ func (b *ejbcaBackend) pathIssue(ctx context.Context, req *logical.Request, data
     logger.Debug("Issue path called")
 
     if b.isRunningOnPerformanceStandby() {
+        logger.Debug("Running on performance standby - anticipating Vault to forward request to active node - returning backend readonly error")
         // If we're running on performance standby, read requests are the only valid request.
         // Forward the request to the primary node.
         return nil, logical.ErrReadOnly 
@@ -437,7 +438,7 @@ func (b *ejbcaBackend) pathSign(ctx context.Context, req *logical.Request, data 
     logger.Debug("Sign path called")
 
     if b.isRunningOnPerformanceStandby() {
-        logger.Debug("Running on performance standby - forwarding request to active node")
+        logger.Debug("Running on performance standby - anticipating Vault to forward request to active node")
         // If we're running on performance standby, read requests are the only valid request.
         // Forward the request to the primary node.
         return nil, logical.ErrReadOnly 
@@ -452,7 +453,7 @@ func (b *ejbcaBackend) pathSignVerbatim(ctx context.Context, req *logical.Reques
     logger.Debug("Sign Verbatim path called")
 
     if b.isRunningOnPerformanceStandby() {
-        logger.Debug("Running on performance standby - forwarding request to active node")
+        logger.Debug("Running on performance standby - anticipating Vault to forward request to active node - returning backend readonly error")
         // If we're running on performance standby, read requests are the only valid request.
         // Forward the request to the primary node.
         return nil, logical.ErrReadOnly 
