@@ -419,19 +419,46 @@ RSA key-type issuer. Defaults to false.`,
 }
 
 func (b *ejbcaBackend) pathIssue(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	b.Logger().Named("ejbcaBackend.pathIssue").Debug("Issue path called")
+    logger := b.Logger().Named("ejbcaBackend.pathIssue")
+    logger.Debug("Issue path called")
+
+    if b.isRunningOnPerformanceStandby() {
+        logger.Debug("Running on performance standby - anticipating Vault to forward request to active node - returning backend readonly error")
+        // If we're running on performance standby, read requests are the only valid request.
+        // Forward the request to the primary node.
+        return nil, logical.ErrReadOnly 
+    }
+
 	builder := &issueSignResponseBuilder{}
 	return builder.Config(b.makeStorageContext(ctx, req.Storage), req.Path, data).IssueCertificate()
 }
 
 func (b *ejbcaBackend) pathSign(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	b.Logger().Named("ejbcaBackend.pathSign").Debug("Sign path called")
+    logger := b.Logger().Named("ejbcaBackend.pathSign")
+    logger.Debug("Sign path called")
+
+    if b.isRunningOnPerformanceStandby() {
+        logger.Debug("Running on performance standby - anticipating Vault to forward request to active node")
+        // If we're running on performance standby, read requests are the only valid request.
+        // Forward the request to the primary node.
+        return nil, logical.ErrReadOnly 
+    }
+
 	builder := &issueSignResponseBuilder{}
 	return builder.Config(b.makeStorageContext(ctx, req.Storage), req.Path, data).SignCertificate()
 }
 
 func (b *ejbcaBackend) pathSignVerbatim(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	b.Logger().Named("ejbcaBackend.pathSignVerbatim").Debug("Sign Verbatim path called")
+    logger := b.Logger().Named("ejbcaBackend.pathSignVerbatim")
+    logger.Debug("Sign Verbatim path called")
+
+    if b.isRunningOnPerformanceStandby() {
+        logger.Debug("Running on performance standby - anticipating Vault to forward request to active node - returning backend readonly error")
+        // If we're running on performance standby, read requests are the only valid request.
+        // Forward the request to the primary node.
+        return nil, logical.ErrReadOnly 
+    }
+
 	builder := &issueSignResponseBuilder{}
 	return builder.Config(b.makeStorageContext(ctx, req.Storage), req.Path, data).SignCertificate()
 }
