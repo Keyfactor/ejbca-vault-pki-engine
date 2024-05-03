@@ -245,13 +245,14 @@ func (b *issueSignResponseBuilder) Config(sc *storageContext, path string, data 
 // and signs it using the configured CA.
 func (b *issueSignResponseBuilder) IssueCertificate() (*logical.Response, error) {
 	logger := b.storageContext.Backend.Logger().Named("issueSignResponseBuilder.IssueCertificate")
-	logger.Debug("Issuing certificate")
 
 	logger.Trace("Setting role for certificate issuance")
 	err := b.helper.SetRole()
 	if err != nil {
 		return nil, err
 	}
+
+	logger.Debug("Issuing certificate")
 
 	// Issue methods create the private key and CSR according to the role configuration
 	logger.Trace("Creating CSR")
