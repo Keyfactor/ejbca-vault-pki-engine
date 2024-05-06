@@ -182,6 +182,13 @@ func (b *ejbcaBackend) pathConfigRead(ctx context.Context, req *logical.Request,
 func (b *ejbcaBackend) pathConfigWrite(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	logger := b.Logger().Named("pathConfigWrite")
 
+    if b.isRunningOnPerformanceStandby() {
+        logger.Debug("Running on performance standby - anticipating Vault to forward request to active node - returning backend readonly error")
+        // If we're running on performance standby, read requests are the only valid request.
+        // Forward the request to the primary node.
+        return nil, logical.ErrReadOnly 
+    }
+
 	sc := b.makeStorageContext(ctx, req.Storage)
 	config, err := sc.Config().getConfig()
 	if err != nil {

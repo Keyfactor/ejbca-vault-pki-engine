@@ -995,6 +995,13 @@ func (b *ejbcaBackend) pathRoleRead(ctx context.Context, req *logical.Request, d
 func (b *ejbcaBackend) pathRoleCreate(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	logger := b.Logger().Named("pathRoleCreate")
 
+    if b.isRunningOnPerformanceStandby() {
+        logger.Debug("Running on performance standby - anticipating Vault to forward request to active node - returning backend readonly error")
+        // If we're running on performance standby, read requests are the only valid request.
+        // Forward the request to the primary node.
+        return nil, logical.ErrReadOnly 
+    }
+
 	var err error
 	name := data.Get("name").(string)
 	logger.Debug("Executing pathRoleCreate", "name", name)

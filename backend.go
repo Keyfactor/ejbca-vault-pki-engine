@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/hashicorp/vault/sdk/framework"
+	"github.com/hashicorp/vault/sdk/helper/consts"
 	"github.com/hashicorp/vault/sdk/logical"
 )
 
@@ -136,6 +137,10 @@ func (sc *storageContext) getClient() (*ejbcaClient, error) {
 	}
 
 	return sc.Backend.client, nil
+}
+
+func (b *ejbcaBackend) isRunningOnPerformanceStandby() bool {
+    return b.System().ReplicationState().HasState(consts.ReplicationPerformanceStandby)
 }
 
 // backendHelp should contain help information for the backend

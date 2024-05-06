@@ -1,3 +1,7 @@
+# v1.4.0
+## Fixes
+* Paths that need to write to the Storage backend now forward the request to the primary node. This is important in Enterprise HA deployments where Performance Standby Nodes are allowed to handle read requests/paths.
+
 # v1.3.0
 ## Fixes
 * Certificate revocation with the `/revoke*` paths now support revocation of certificates not in local Engine storage if a certificate is provided. Revoked certificates are stored in the revoked storage regardless of the initial role configuration used to issue the certificate.
