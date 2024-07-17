@@ -71,7 +71,7 @@ func (c *caStorageContext) resolveIssuerReference(caName string) error {
 		}
 	}
 
-	return fmt.Errorf("CA %s not found", caName)
+	return errutil.UserError{Err: fmt.Sprintf("Could not find CA called %s in connected EJBCA - please make sure that it exists and that your credentials have the proper permissions.", caName)}
 }
 
 func (c *caStorageContext) putCaEntry(caName string, entry caEntry) error {
@@ -361,10 +361,12 @@ func (b *caResponseBuilder) Build() (*logical.Response, error) {
 	if err != nil {
 		var userError errutil.UserError
 		if errors.As(err, &userError) {
+			logger.Trace("fetchCaBundle failed as UserError - returning logical ErrorResponse")
 			return logical.ErrorResponse(err.Error()), nil
 		}
 		var ejbcaError ejbcaAPIError
 		if errors.As(err, &ejbcaError) {
+			logger.Trace("fetchCaBundle failed as ejbcaAPIError - returning logical raw response with status", "code", ejbcaError.Code)
 			return ejbcaError.ToLogicalResponse()
 		}
 		// Only return error if path is JSON response.

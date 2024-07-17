@@ -19,6 +19,7 @@ package ejbca
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -1098,6 +1099,15 @@ func (b *ejbcaBackend) pathRoleCreate(ctx context.Context, req *logical.Request,
 	logger.Debug("Validating role entry before storing", "entry", entry)
 	resp, err := entry.validate(b.makeStorageContext(ctx, req.Storage))
 	if err != nil {
+		var userError errutil.UserError
+		if errors.As(err, &userError) {
+			return logical.ErrorResponse(err.Error()), nil
+		}
+		var ejbcaError ejbcaAPIError
+		if errors.As(err, &ejbcaError) {
+			return ejbcaError.ToLogicalResponse()
+		}
+
 		return nil, err
 	}
 	if warning != "" {
@@ -1392,6 +1402,8 @@ func (r *roleEntry) validate(sc *storageContext) (*logical.Response, error) {
 		r.EndEntityName = config.DefaultEndEntityName
 	}
 
+	// We expect resolveIssuerReference to return its error as a known type to allow the
+	// caller to properly handle it. IE - blindly return err if it's not nil
 	err = sc.CA().resolveIssuerReference(r.Issuer)
 	if err != nil {
 		return nil, err

@@ -274,7 +274,7 @@ func (c *certStorageContext) listRevokedCerts() ([]string, error) {
 
 	list, err := c.storageContext.Storage.List(c.storageContext.Context, revokedPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed listing revoked certs: %w", err)
+		return nil, errutil.InternalError{Err: fmt.Sprintf("failed listing revoked certs: %s", err)}
 	}
 
 	// Normalize serial back to a format people are expecting.

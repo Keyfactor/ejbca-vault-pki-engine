@@ -18,7 +18,6 @@ package ejbca
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"testing"
 
@@ -76,29 +75,4 @@ func getTestBackend(tb testing.TB) (*ejbcaBackend, logical.Storage) {
 	caCert = string(file)
 
 	return b.(*ejbcaBackend), config.StorageView
-}
-
-func logicalResponseIsEjbcaError(resp *logical.Response) bool {
-	if resp == nil {
-		return false
-	}
-	if contentType, ok := resp.Data[logical.HTTPContentType].(string); !ok || contentType != "application/json" {
-		return false
-	}
-	if rawBody, ok := resp.Data[logical.HTTPRawBody].(string); !ok || rawBody == "" {
-		return false
-	}
-	if _, ok := resp.Data[logical.HTTPStatusCode].(int); !ok {
-		return false
-	}
-
-	err := json.Unmarshal([]byte(resp.Data[logical.HTTPRawBody].(string)), &resp.Data)
-	if err != nil {
-		return false
-	}
-	if _, ok := resp.Data["errors"]; !ok {
-		return false
-	}
-
-	return true
 }
