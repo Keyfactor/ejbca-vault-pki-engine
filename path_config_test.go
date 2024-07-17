@@ -88,9 +88,9 @@ func TestConfig(t *testing.T) {
 
 	t.Run("Test Configuration OAuth", func(t *testing.T) {
 		const (
-			tokenURL     = "https://dev.idp.com/oauth/token"
-			clientID     = "fi3ElQUVoBBHyRNt4mpUxG9WY65AOCcJ"
-			clientSecret = "UenqbXbqPPlmfettbsu7erbqzrvwomrnvuR"
+			tokenURL     = "1a2b3c"
+			clientID     = "abc123"
+			clientSecret = "123bca"
 			scopes       = "read:certificates,write:certificates"
 			audience     = "https://ejbca.example.com"
 		)
