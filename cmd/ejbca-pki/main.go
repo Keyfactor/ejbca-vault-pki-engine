@@ -12,9 +12,10 @@ License.
 package main
 
 import (
-	"github.com/hashicorp/go-hclog"
 	"log"
 	"os"
+
+	"github.com/hashicorp/go-hclog"
 
 	ejbca "github.com/Keyfactor/ejbca-vault-pki-engine"
 	"github.com/hashicorp/vault/api"

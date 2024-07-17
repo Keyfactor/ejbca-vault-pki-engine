@@ -1,20 +1,8 @@
 # Get started with the EJBCA PKI Secrets Engine
 
-EJBCA PKI Engine and Backend for HashiCorp Vault. Used to issue, sign, and revoke certificates using the EJBCA CA via HashiCorp Vault
-
-#### Integration status: Production - Ready for use in production environments.
-
-## About the Keyfactor API Client
-
-This API client allows for programmatic management of Keyfactor resources.
-
-## EJBCA PKI Secrets Engine for HashiCorp Vault
-
-The EJBCA PKI Secrets Engine for HashiCorp Vault enables DevOps teams to request and retrieve certificates from EJBCA using HashiCorp Vault, while security teams retain control over backend PKI operations.
+The EJBCA PKI Secrets Engine is a Vault plugin that replicates the built-in Vault PKI secrets engine, but processes requests through EJBCA instead of through Vault. The plugin was designed to be swapped for the built-in Vault PKI secrets engine with minimal changes to existing Vault configurations.
 
 The secrets engine is built on top of the [EJBCA REST API](https://doc.primekey.com/ejbca/ejbca-operations/ejbca-ca-concept-guide/protocols/ejbca-rest-interface) and uses the [EJBCA Go Client SDK](https://github.com/Keyfactor/ejbca-go-client-sdk) for programmatic access. 
-
-The EJBCA PKI Secrets Engine is a Vault plugin that replicates the built-in Vault PKI secrets engine, but processes requests through EJBCA instead of through Vault. The plugin was designed to be swapped for the built-in Vault PKI secrets engine with minimal changes to existing Vault configurations.
 
 ## EJBCA API Usage
 The EJBCA PKI Secrets Engine requires the following API endpoints:
@@ -29,7 +17,8 @@ The EJBCA PKI Secrets Engine requires the following API endpoints:
 * [Golang](https://golang.org/) >= v1.19
 
 ### To use
-* [Keyfactor EJBCA](https://www.keyfactor.com/products/ejbca-enterprise/) >= v7.7
+* EJBCA [Community](https://www.ejbca.org/) or EJBCA [Enterprise](https://www.keyfactor.com/products/ejbca-enterprise/)
+  * The "REST Certificate Management" protocol must be enabled under System Configuration > Protocol Configuration.
 * [HashiCorp Vault](https://www.vaultproject.io/) >= v1.11.0
 
 ## Installation
@@ -99,16 +88,43 @@ vault secrets enable -path=ejbca -plugin-name=ejbca-vault-pki-engine plugin
 </details>
 
 ## Configuration
-Before using the EJBCA PKI Secrets Engine, you must configure it by providing the following information:
-- EJBCA Hostname
-- Client Certificate
-- Client Private Key
-- Default CA Certificate (used as `issuer_ref` if not configured in role)
-- Default End Entity Profile (used as `end_entity_profile_name` if not configured in role)
-- Default Certificate Profile (used as `certificate_profile_name` if not configured in role)
-- Default End Entity Name - See the (configuring end entity name)[#configuring-end-entity-name] section for the possible values of this field
 
-Use the following vault command to create the `config` object:
+The EJBCA Vault PKI Engine has two levels of configuration.
+
+* The `/config` path configures the connection to EJBCA and contains default values for the EJBCA-specific configuration fields. Default configuration fields are provided in case you already use the in-tree Vault PKI Engine and want to deploy the EJBCA Secrets Engine with minimal intervention.
+* The `/roles` endpoint configures how the engine should behave when issuing certificates, and configures the validations/requirements for the attributes included in signed certificates. The EJBCA Vault PKI Engine implements a subset of the fields implemented by the in-tree Vault PKI Engine.
+
+The `/config` endpoint must be configured first. The following table describes the available fields.
+
+| Configuration                 | Description                                                                                                                                                                                                        |
+|-------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `hostname`                    | The hostname of the connected EJBCA server.                                                                                                                                                                        |
+| `ca_cert`                     | (optional) The CA certificate(s) used to validate the EJBCA server's certificate. Certificates must be in PEM format.                                                                                              |
+| `client_cert`                 | The client certificate (public key only) used to authenticate to EJBCA. Must be in PEM format.                                                                                                                     |
+| `client_key`                  | The client key matching `client_cert` used to authenticate to EJBCA. Must be an unencrypted PKCS#8 private key in PEM format.                                                                                      |
+| `token_url`                   | The OAuth 2.0 token URL used to obtain an access token.                                                                                                                                                            |
+| `client_id`                   | The OAuth 2.0 client ID used to obtain an access token.                                                                                                                                                            |
+| `client_secret`               | The OAuth 2.0 client secret used to obtain an access token.                                                                                                                                                        |
+| `scopes`                      | (optional) A comma-separated list of OAuth 2.0 scopes used to obtain an access token.                                                                                                                              |
+| `audience`                    | (optional) The OAuth 2.0 audience used to obtain an access token.                                                                                                                                                  |
+| `default_ca`                  | The default CA in EJBCA that will be used to issue certificates if not specified by the role or per-request.                                                                                                       |
+| `default_end_entity_profile`  | The name of an end entity profile in the connected EJBCA instance that will be used to issue certificates if not specified by the role or per-request.                                                             |
+| `default_certificate_profile` | The name of a certificate profile in the connected EJBCA instance that is configured to issue certificates if not specified by the role or per-request.                                                            |
+| `default_end_entity_name`     | (optional) The name of the end entity, or configuration for how the EJBCA UpstreamAuthority should determine the end entity name. See [End Entity Name Customization](#configuring-end-entity-name) for more info. |
+
+### mTLS vs OAuth 2.0
+
+The EJBCA Vault PKI Engine can authenticate to EJBCA using mTLS (client certificate) or using the OAuth 2.0 "client credentials" token flow (sometimes called two-legged OAuth 2.0).
+
+> [EJBCA Enterprise](https://www.keyfactor.com/products/ejbca-enterprise/) is required for the OAuth 2.0 "client credentials" token flow. EJBCA Community only supports mTLS (client certificate) authentication.
+
+To configure the plugin to use mTLS, you must configure the `/config` object with **both** of the following fields:
+
+* `client_cert`
+* `client_key`
+
+Use the following vault command to create the `config` object with mTLS:
+
 ```shell
 vault write ejbca/config \
     hostname="https://ejbca.example.com:8443/ejbca" \
@@ -119,9 +135,32 @@ vault write ejbca/config \
     certificate_profile_name="MyCertificateProfile"
 ```
 
+To configure the plugin to use OAuth 2.0, you must configure the `/config` object with the following fields:
+
+* `token_url`
+* `client_id`
+* `client_secret`
+* (optional) `scopes`
+* (optional) `audience`
+
+Use the following vault command to create the `config` object with OAuth 2.0:
+
+
+```shell
+vault write ejbca/config \
+    hostname="https://ejbca.example.com:8443/ejbca" \
+    token_url="https://dev.idp.com/oauth/token" \
+    client_id="<client_id>" \
+    client_secret="<client_secret>" \
+    scopes="<comma separated list of scopes>" \
+    audience="<OAuth audience>" \
+    ca_cert=@/path/to/ca/cert.pem \
+    end_entity_profile_name="MyEndEntityProfile" \
+    certificate_profile_name="MyCertificateProfile"
+```
+
 ## Roles
-The EJBCA PKI Secrets Engine supports the same role configuration as the built-in Vault PKI secrets engine,
-and can be used as a drop-in replacement. Use the following command to get descriptions for these fields:
+The EJBCA PKI Secrets Engine supports a subset of the role fields as the built-in Vault PKI secrets engine, and for most usecases, can be used as a drop-in replacement. Use the following command to get descriptions for these fields:
 ```shell
 vault path-help ejbca/roles/name
 ```
@@ -144,7 +183,8 @@ vault write ejbca/roles/example-dot-com \
     use_pss=false
 ```
 
-The EJBCA PKI Secrets Engine also supports the following additional role fields:
+The EJBCA PKI Secrets Engine also supports the following additional role fields that are not needed in the in-tree Vault PKI engine.
+
 - `end_entity_profile_name` - The name of the EJBCA End Entity Profile to use for certificate issuance.
 - `certificate_profile_name` - The name of the EJBCA Certificate Profile to use for certificate issuance.
 - `end_entity_name` - A value that will either be used to calculate the end entity name, or the end entity name itself. See the (configuring end entity name)[#configuring-end-entity-name] for more details.
@@ -152,13 +192,18 @@ The EJBCA PKI Secrets Engine also supports the following additional role fields:
 
 > **Note:** If left blank, the `end_entity_profile_name`, `certificate_profile_name`, and `end_entity_name` fields will default to the values configured in the `config` object.
 
+### Vault Lease
+
+The EJBCA Vault PKI Engine can create [Vault Leases](https://developer.hashicorp.com/vault/docs/concepts/lease) for issued certificates if the role has `generate_lease=true`. If this option is set, the lease and certificate that it represents can be revoked with `vault revoke <lease_id>`. When the lease is revoked, the engine revokes the certificate in EJBCA and updates the backend accordingly for the regular paths.
+
 ## Path Overview
-Once the EJBCA PKI Secrets Engine is configured and roles are created, you can use the following paths to issue and sign certificates,
-list certificates, and revoke certificates.
+
+Once the EJBCA PKI Secrets Engine is configured and roles are created, you can use the following paths to issue and sign certificates, list certificates, and revoke certificates.
+
 ### Issue/Sign Paths
 The following paths can be used to issue and sign certificates. The `:role_name` parameter is required for all paths except `sign-verbatim`. Paths that require the `:issuer_ref` parameter will use the provided name as the EJBCA CA name for certificate issuance.
 
-> **Note:** The `/issue` paths generate the CSR and private key on the Vault server.
+> **Note:** The `/issue` paths generate the CSR and private key on the Vault server - the private key is never sent over the wire by EJBCA.
 
 | Path                                          | Issuer        | CSR required | Subject to role restriction | Description                                                                                                                          | Help Path                                            |
 |-----------------------------------------------|---------------|--------------|-----------------------------|--------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------|
