@@ -28,11 +28,6 @@ import (
 var (
 	clientCert                = ""
 	clientKey                 = ""
-	tokenURL                  = os.Getenv("EJBCA_OAUTH_TOKEN_URL")
-	clientID                  = os.Getenv("EJBCA_OAUTH_CLIENT_ID")
-	clientSecret              = os.Getenv("EJBCA_OAUTH_CLIENT_SECRET")
-	scopes                    = os.Getenv("EJBCA_OAUTH_SCOPES")
-	audience                  = os.Getenv("EJBCA_OAUTH_AUDIENCE")
 	caCert                    = ""
 	hostname                  = os.Getenv("EJBCA_HOSTNAME")
 	_defaultCaName            = os.Getenv("EJBCA_CA_NAME")

@@ -87,6 +87,14 @@ func TestConfig(t *testing.T) {
 	})
 
 	t.Run("Test Configuration OAuth", func(t *testing.T) {
+		const (
+			tokenURL     = "https://dev.idp.com/oauth/token"
+			clientID     = "fi3ElQUVoBBHyRNt4mpUxG9WY65AOCcJ"
+			clientSecret = "UenqbXbqPPlmfettbsu7erbqzrvwomrnvuR"
+			scopes       = "read:certificates,write:certificates"
+			audience     = "https://ejbca.example.com"
+		)
+
 		err := testConfigCreate(t, b, reqStorage, map[string]interface{}{
 			"token_url":                   tokenURL,
 			"client_id":                   clientID,
