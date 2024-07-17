@@ -1,29 +1,35 @@
 /*
-Copyright 2024 Keyfactor
-Licensed under the Apache License, Version 2.0 (the "License"); you may
-not use this file except in compliance with the License.  You may obtain a
-copy of the License at http://www.apache.org/licenses/LICENSE-2.0.  Unless
-required by applicable law or agreed to in writing, software distributed
-under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES
-OR CONDITIONS OF ANY KIND, either express or implied. See the License for
-thespecific language governing permissions and limitations under the
-License.
+Copyright © 2024 Keyfactor
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 */
-package ejbca_vault_pki_engine
+
+package ejbca
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
 	"github.com/hashicorp/go-secure-stdlib/parseutil"
 	"github.com/hashicorp/vault/sdk/framework"
 	"github.com/hashicorp/vault/sdk/helper/certutil"
 	"github.com/hashicorp/vault/sdk/helper/consts"
 	"github.com/hashicorp/vault/sdk/helper/errutil"
 	"github.com/hashicorp/vault/sdk/logical"
-	"net/http"
-	"strings"
-	"time"
 )
 
 const (
@@ -305,11 +311,11 @@ this value in certificates issued by this role.`,
 				Type: framework.TypeBool,
 				Description: `
 If set, certificates issued/signed against this role will have Vault leases
-attached to them. Defaults to "false". Certificates can be added to the CRL by
+attached to them. Defaults to "false". Certificates can be revoked in EJBCA by
 "vault revoke <lease_id>" when certificates are associated with leases.  It can
 also be done using the "pki/revoke" endpoint. However, when lease generation is
-disabled, invoking "pki/revoke" would be the only way to add the certificates
-to the CRL.  When large number of certificates are generated with long
+disabled, invoking "pki/revoke" would be the only way to revoke certificates. 
+When large number of certificates are generated with long
 lifetimes, it is recommended that lease generation be disabled, as large amount of
 leases adversely affect the startup time of Vault.`,
 			},
@@ -451,7 +457,7 @@ type roleEntry struct {
 	EndEntityProfileName          string        `json:"end_entity_profile_name"`
 	CertificateProfileName        string        `json:"certificate_profile_name"`
 	EndEntityName                 string        `json:"end_entity_name"`
-	AccountBindingId              string        `json:"account_binding_id"`
+	AccountBindingID              string        `json:"account_binding_id"`
 }
 
 func pathRole(b *ejbcaBackend) []*framework.Path {
@@ -957,7 +963,7 @@ serviced by this role.`,
 
 // ======================= Role CRUD Operations =======================
 
-func (b *ejbcaBackend) pathRoleList(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+func (b *ejbcaBackend) pathRoleList(ctx context.Context, req *logical.Request, _ *framework.FieldData) (*logical.Response, error) {
 	b.Logger().Debug("Executing pathRoleList")
 
 	entries, err := req.Storage.List(ctx, "role/")
@@ -995,12 +1001,12 @@ func (b *ejbcaBackend) pathRoleRead(ctx context.Context, req *logical.Request, d
 func (b *ejbcaBackend) pathRoleCreate(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	logger := b.Logger().Named("pathRoleCreate")
 
-    if b.isRunningOnPerformanceStandby() {
-        logger.Debug("Running on performance standby - anticipating Vault to forward request to active node - returning backend readonly error")
-        // If we're running on performance standby, read requests are the only valid request.
-        // Forward the request to the primary node.
-        return nil, logical.ErrReadOnly 
-    }
+	if b.isRunningOnPerformanceStandby() {
+		logger.Debug("Running on performance standby - anticipating Vault to forward request to active node - returning backend readonly error")
+		// If we're running on performance standby, read requests are the only valid request.
+		// Forward the request to the primary node.
+		return nil, logical.ErrReadOnly
+	}
 
 	var err error
 	name := data.Get("name").(string)
@@ -1054,7 +1060,7 @@ func (b *ejbcaBackend) pathRoleCreate(ctx context.Context, req *logical.Request,
 		EndEntityProfileName:          data.Get("end_entity_profile_name").(string),
 		CertificateProfileName:        data.Get("certificate_profile_name").(string),
 		EndEntityName:                 data.Get("end_entity_name").(string),
-		AccountBindingId:              data.Get("account_binding_id").(string),
+		AccountBindingID:              data.Get("account_binding_id").(string),
 	}
 
 	allowedOtherSANs := data.Get("allowed_other_sans").([]string)
@@ -1172,7 +1178,7 @@ func (r *roleEntry) ToResponseData() map[string]interface{} {
 		"issuer_ref":                         r.Issuer,
 		"end_entity_profile_name":            r.EndEntityProfileName,
 		"certificate_profile_name":           r.CertificateProfileName,
-		"account_binding_id":                 r.AccountBindingId,
+		"account_binding_id":                 r.AccountBindingID,
 	}
 	if r.MaxPathLength != nil {
 		responseData["max_path_length"] = r.MaxPathLength
@@ -1459,10 +1465,10 @@ func getPolicyIdentifier(data *framework.FieldData, defaultIdentifiers *[]string
 		return data.Get("policy_identifiers").([]string)
 	}
 	// Could Be A JSON Entry
-	policyIdentifierJsonEntry := data.Raw["policy_identifiers"]
-	policyIdentifierJsonString, ok := policyIdentifierJsonEntry.(string)
+	policyIdentifierJSONEntry := data.Raw["policy_identifiers"]
+	policyIdentifierJSONString, ok := policyIdentifierJSONEntry.(string)
 	if ok {
-		policyIdentifiers, err := parsePolicyIdentifiersFromJson(policyIdentifierJsonString)
+		policyIdentifiers, err := parsePolicyIdentifiersFromJSON(policyIdentifierJSONString)
 		if err == nil {
 			return policyIdentifiers
 		}
@@ -1471,7 +1477,7 @@ func getPolicyIdentifier(data *framework.FieldData, defaultIdentifiers *[]string
 	return policyIdentifierEntry.([]string)
 }
 
-func parsePolicyIdentifiersFromJson(policyIdentifiers string) ([]string, error) {
+func parsePolicyIdentifiersFromJSON(policyIdentifiers string) ([]string, error) {
 	var entries []certutil.PolicyIdentifierWithQualifierEntry
 	var policyIdentifierList []string
 	err := json.Unmarshal([]byte(policyIdentifiers), &entries)
