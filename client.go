@@ -17,7 +17,6 @@ limitations under the License.
 package ejbca
 
 import (
-	"context"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -33,8 +32,6 @@ import (
 type ejbcaClient struct {
 	*ejbca.APIClient
 }
-
-type newEjbcaAuthenticatorFunc func(context.Context) (ejbca.Authenticator, error)
 
 // ejbcaAPIError is an intermediate interface that allows the EJBCA Vault PKI Engine to return
 // the EJBCA API error code as the Vault API error code.

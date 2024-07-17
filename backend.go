@@ -142,7 +142,7 @@ func (sc *storageContext) getClient() (*ejbcaClient, error) {
 	}
 
 	logger.Trace("Creating new EJBCA authenticator")
-	authenticator, err := sc.Backend.newAuthenticator(sc.Context, config)
+	authenticator, err := sc.Backend.newAuthenticator(config)
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +165,7 @@ func (sc *storageContext) getClient() (*ejbcaClient, error) {
 	return sc.Backend.client, nil
 }
 
-func (b *ejbcaBackend) newAuthenticator(ctx context.Context, config *ejbcaConfig) (ejbca.Authenticator, error) {
+func (b *ejbcaBackend) newAuthenticator(config *ejbcaConfig) (ejbca.Authenticator, error) {
 	var err error
 	logger := b.Logger().Named("ejbcaBackend.newAuthenticator")
 
