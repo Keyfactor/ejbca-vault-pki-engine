@@ -1,136 +1,126 @@
 /*
-Copyright 2024 Keyfactor
-Licensed under the Apache License, Version 2.0 (the "License"); you may
-not use this file except in compliance with the License.  You may obtain a
-copy of the License at http://www.apache.org/licenses/LICENSE-2.0.  Unless
-required by applicable law or agreed to in writing, software distributed
-under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES
-OR CONDITIONS OF ANY KIND, either express or implied. See the License for
-thespecific language governing permissions and limitations under the
-License.
+Copyright © 2024 Keyfactor
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 */
-package ejbca_vault_pki_engine
+
+package ejbca
 
 import (
-	"crypto/tls"
-	"crypto/x509"
+	"context"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/Keyfactor/ejbca-go-client-sdk/api/ejbca"
-	"github.com/hashicorp/go-hclog"
-	"github.com/hashicorp/vault/sdk/helper/errutil"
+	"github.com/hashicorp/vault/sdk/logical"
 )
 
 type ejbcaClient struct {
 	*ejbca.APIClient
 }
 
-func newClient(config *ejbcaConfig) (*ejbcaClient, error) {
-	logger := hclog.New(&hclog.LoggerOptions{})
+type newEjbcaAuthenticatorFunc func(context.Context) (ejbca.Authenticator, error)
 
-	// Validate the configuration
-	if config == nil {
-		return nil, errors.New("client configuration was nil")
-	}
-
-	if config.Hostname == "" {
-		return nil, errors.New("client hostname was not defined")
-	}
-
-	if config.ClientCert == "" {
-		return nil, errors.New("client cert was not defined")
-	}
-
-	if config.ClientKey == "" {
-		return nil, errors.New("client key was not defined")
-	}
-
-	logger.Debug("Creating EJBCA client")
-
-	// Construct EJBCA configuration object
-	configuration := ejbca.NewConfiguration()
-	configuration.Host = config.Hostname
-	logger.Debug(fmt.Sprintf("Setting hostname to %s", config.Hostname))
-
-	// Decode the PEM encoded client cert and key using Go standard libraries to ensure they are valid
-	certKeyBytes := []byte(config.ClientCert + "\n" + config.ClientKey)
-	clientCertBlock, privKeyBlock := decodePEMBytes(certKeyBytes)
-	logger.Debug(fmt.Sprintf("Found client certificate with %d PEM blocks", len(clientCertBlock)))
-
-	if len(clientCertBlock) == 0 {
-		return nil, errors.New("client certificate contains data but a PEM structure could not be decoded - please check the format of your client certificate and key")
-	}
-
-	// Create a TLS certificate object
-	tlsCert, err := tls.X509KeyPair(pem.EncodeToMemory(clientCertBlock[0]), pem.EncodeToMemory(privKeyBlock))
-	if err != nil {
-		return nil, err
-	}
-
-	// Set the TLS configuration
-	configuration.SetClientCertificate(&tlsCert)
-
-	if config.CaCert != "" {
-		caChainBlocks, _ := decodePEMBytes([]byte(config.CaCert))
-
-		var caChain []*x509.Certificate
-		for _, block := range caChainBlocks {
-			// Parse the PEM block into an x509 certificate
-			cert, err := x509.ParseCertificate(block.Bytes)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse certificate from provided CA chain: %v", err)
-			}
-
-			caChain = append(caChain, cert)
-		}
-
-		configuration.SetCaCertificates(caChain)
-	}
-
-	apiClient, err := ejbca.NewAPIClient(configuration)
-	if err != nil {
-		return nil, err
-	}
-
-	return &ejbcaClient{apiClient}, nil
+// ejbcaAPIError is an intermediate interface that allows the EJBCA Vault PKI Engine to return
+// the EJBCA API error code as the Vault API error code.
+type ejbcaAPIError struct {
+	Message string
+	Code    int
 }
 
-func (e *ejbcaClient) createErrorFromEjbcaErr(b *ejbcaBackend, detail string, err error) error {
+func (e ejbcaAPIError) Error() string {
+	return e.Message
+}
+
+// ToLogicalResponse converts the error message and HTTP error code into a raw logical.Response object.
+func (e ejbcaAPIError) ToLogicalResponse() (*logical.Response, error) {
+	var err error
+	if e.Code == 0 {
+		e.Code = http.StatusInternalServerError
+	}
+	jsonBody, err := json.Marshal(map[string]interface{}{
+		"errors": []string{e.Message},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal EJBCA error to json: %w", err)
+	}
+
+	response := &logical.Response{
+		Data: map[string]interface{}{
+			logical.HTTPContentType: "application/json",
+			logical.HTTPStatusCode:  e.Code,
+			logical.HTTPRawBody:     string(jsonBody),
+		},
+	}
+	return response, err
+}
+
+func (e *ejbcaClient) EjbcaAPIError(b *ejbcaBackend, detail string, err error) error {
 	logger := b.Logger().Named("ejbcaClient.createErrorFromEjbcaErr")
 	if err == nil {
 		return nil
 	}
 	errString := fmt.Sprintf("%s - %s", detail, err.Error())
 
-	bodyError, ok := err.(*ejbca.GenericOpenAPIError)
-	if ok {
-		errString += fmt.Sprintf(" - EJBCA API returned error %s", bodyError.Body())
+	// Convert Error() in the format "<code> <message>" back to an HTTP error code
+	code := statusTextToCode(err.Error())
+	logger.Trace(fmt.Sprintf("Mapped status message %q to code %d", err.Error(), code))
+
+	var genericOpenAPIError *ejbca.GenericOpenAPIError
+	if errors.As(err, &genericOpenAPIError) {
+		errString += fmt.Sprintf(" - EJBCA API returned error %s", genericOpenAPIError.Body())
+	} else {
+		logger.Warn("Couldn't map EJBCA API error to more verbose error interface - API error message may be vague")
 	}
 
 	logger.Error("EJBCA returned an error!", "error", errString)
 
-	return errutil.InternalError{Err: errString}
+	return ejbcaAPIError{Message: errString, Code: code}
 }
 
-func decodePEMBytes(buf []byte) ([]*pem.Block, *pem.Block) {
-	logger := hclog.New(&hclog.LoggerOptions{})
-	var privKey *pem.Block
+func statusTextToCode(statusText string) int {
+	parts := strings.SplitN(statusText, " ", 2)
+	if len(parts) < 2 {
+		return 0
+	}
+
+	statusCode, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0
+	}
+
+	if http.StatusText(statusCode) == "" {
+		return 0
+	}
+
+	return statusCode
+}
+
+// decodePEMBytes takes a byte array containing PEM encoded data and returns a slice of PEM blocks and a private key PEM block
+func decodePEMBytes(buf []byte) []*pem.Block {
 	var certificates []*pem.Block
 	var block *pem.Block
 	for {
 		block, buf = pem.Decode(buf)
 		if block == nil {
 			break
-		} else if strings.Contains(block.Type, "PRIVATE KEY") {
-			logger.Trace("Found private key in PEM block")
-			privKey = block
-		} else {
-			logger.Trace("Found certificate in PEM block")
-			certificates = append(certificates, block)
 		}
+		certificates = append(certificates, block)
 	}
-	return certificates, privKey
+	return certificates
 }
