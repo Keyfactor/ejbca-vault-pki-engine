@@ -57,11 +57,6 @@ In the [Keyfactor Community](https://www.keyfactor.com/community/), we welcome c
 
 ## Requirements
 
-* [EJBCA](https://ejbca.org) (>= 7.10)
-* [Terraform](https://www.terraform.io/downloads) (>= 1.0)
-* [Go](https://go.dev/doc/install) (1.22.3)
-* [GNU Make](https://www.gnu.org/software/make/)
-
 ### To build
 * [Git](https://git-scm.com/)
 * [Golang](https://golang.org/) >= v1.19
