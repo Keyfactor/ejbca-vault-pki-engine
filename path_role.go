@@ -827,8 +827,8 @@ this value in certificates issued by this role.`,
 					Type: framework.TypeBool,
 					Description: `
 If set, certificates issued/signed against this role will have Vault leases
-attached to them. Defaults to "false". Certificates can be added to the CRL by
-"vault revoke <lease_id>" when certificates are associated with leases.  It can
+attached to them. Defaults to "false". Certificates can be revoked by
+"vault revoke <lease_id>" when certificates are associated with leases. It can
 also be done using the "pki/revoke" endpoint. However, when lease generation is
 disabled, invoking "pki/revoke" would be the only way to add the certificates
 to the CRL.  When large number of certificates are generated with long
