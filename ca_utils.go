@@ -1,28 +1,35 @@
 /*
-Copyright 2024 Keyfactor
-Licensed under the Apache License, Version 2.0 (the "License"); you may
-not use this file except in compliance with the License.  You may obtain a
-copy of the License at http://www.apache.org/licenses/LICENSE-2.0.  Unless
-required by applicable law or agreed to in writing, software distributed
-under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES
-OR CONDITIONS OF ANY KIND, either express or implied. See the License for
-thespecific language governing permissions and limitations under the
-License.
+Copyright © 2024 Keyfactor
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 */
-package ejbca_vault_pki_engine
+
+package ejbca
 
 import (
 	"context"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"errors"
 	"fmt"
-	"github.com/hashicorp/vault/sdk/helper/certutil"
-	"github.com/hashicorp/vault/sdk/helper/errutil"
-	"github.com/hashicorp/vault/sdk/logical"
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/hashicorp/vault/sdk/helper/certutil"
+	"github.com/hashicorp/vault/sdk/helper/errutil"
+	"github.com/hashicorp/vault/sdk/logical"
 )
 
 const (
@@ -42,13 +49,21 @@ func (c *caStorageContext) resolveIssuerReference(caName string) error {
 	if err != nil {
 		return err
 	}
-	// Get a list of all CAs
+
 	logger.Trace("Fetching CA list from EJBCA")
-	caList, _, err := client.V1CaApi.ListCas(c.storageContext.Context).Execute()
+	caList, r, err := client.V1CaApi.ListCas(c.storageContext.Context).Execute()
 	if err != nil {
-		return client.createErrorFromEjbcaErr(c.storageContext.Backend, "Failed to fetch CA list from EJBCA", err)
+		logger.Error("Failed to fetch CA list from EJBCA")
+		return client.EjbcaAPIError(c.storageContext.Backend, "Failed to fetch CA list from EJBCA", err)
+	}
+	defer r.Body.Close()
+
+	if len(caList.GetCertificateAuthorities()) == 0 {
+		logger.Error(fmt.Sprintf("Found %d CAs in EJBCA", len(caList.GetCertificateAuthorities())))
+		return fmt.Errorf("ejbca returned %d available CAs but the API call was successful - make sure that credentials are valid", len(caList.GetCertificateAuthorities()))
 	}
 
+	logger.Debug(fmt.Sprintf("Found %d CAs in EJBCA", len(caList.GetCertificateAuthorities())))
 	for _, ca := range caList.GetCertificateAuthorities() {
 		if ca.GetName() == caName {
 			logger.Trace(fmt.Sprintf("CA called %s exists in EJBCA", caName))
@@ -95,10 +110,11 @@ func (c *caStorageContext) fetchCaBundle(caName string) (*certutil.CAInfoBundle,
 		}
 
 		logger.Trace("Fetching CAs from EJBCA")
-		caList, _, err := client.V1CaApi.ListCas(c.storageContext.Context).Execute()
+		caList, r, err := client.V1CaApi.ListCas(c.storageContext.Context).Execute()
 		if err != nil {
-			return nil, client.createErrorFromEjbcaErr(c.storageContext.Backend, "Failed to fetch CA list from EJBCA", err)
+			return nil, client.EjbcaAPIError(c.storageContext.Backend, "Failed to fetch CA list from EJBCA", err)
 		}
+		defer r.Body.Close()
 
 		// Find the subject DN of the CA we're looking for
 		var caSubjectDN string
@@ -111,7 +127,7 @@ func (c *caStorageContext) fetchCaBundle(caName string) (*certutil.CAInfoBundle,
 
 		// Then, download the certificate chain
 		logger.Trace(fmt.Sprintf("Fetching CA chain for CA called %q with DN %q", caName, caSubjectDN))
-		chain, err := c.getCaChain(c.storageContext.Context, client, caSubjectDN)
+		chain, err := c.downloadCaChain(c.storageContext.Context, client, caSubjectDN)
 		if err != nil {
 			return nil, err
 		}
@@ -179,13 +195,12 @@ func (b *caResponseBuilder) getPemEncoder() func(*certutil.CAInfoBundle) []strin
 				chainList = append(chainList, strings.TrimSpace(string(pem.EncodeToMemory(&block))))
 			}
 			return chainList
-		} else {
-			block := pem.Block{
-				Type:  "CERTIFICATE",
-				Bytes: caBundle.Certificate.Raw,
-			}
-			return []string{strings.TrimSpace(string(pem.EncodeToMemory(&block)))}
 		}
+		block := pem.Block{
+			Type:  "CERTIFICATE",
+			Bytes: caBundle.Certificate.Raw,
+		}
+		return []string{strings.TrimSpace(string(pem.EncodeToMemory(&block)))}
 	}
 }
 
@@ -209,17 +224,17 @@ func (b *caResponseBuilder) getDerEncoder() func(*certutil.CAInfoBundle) []strin
 
 type caResponseBuilder struct {
 	sc               *storageContext
-	isJsonResponse   bool
+	isJSONResponse   bool
 	contentType      string
 	includeChain     bool
 	encoder          func(*certutil.CAInfoBundle) []string
 	response         *logical.Response
 	caName           string
-	customJsonSchema map[string]string
+	customJSONSchema map[string]string
 }
 
 type caResponseHelper struct {
-	isHttpResponse  bool
+	isHTTPResponse  bool
 	httpContentType string
 	includeChain    bool
 	encoder         func(*certutil.CAInfoBundle) []string
@@ -239,16 +254,16 @@ func (b *caResponseBuilder) Config(sc *storageContext, path string) *caResponseB
 	}
 
 	responseConfig := responseMap[path]
-	b.isJsonResponse = !responseConfig.isHttpResponse
+	b.isJSONResponse = !responseConfig.isHTTPResponse
 	b.contentType = responseConfig.httpContentType
 	b.includeChain = responseConfig.includeChain
 	b.encoder = responseConfig.encoder
 
-	b.sc.Backend.Logger().Debug("Configuring CA response builder", "path", path, "isJsonResponse", b.isJsonResponse, "contentType", b.contentType, "includeChain", b.includeChain, "caName", b.caName)
+	b.sc.Backend.Logger().Debug("Configuring CA response builder", "path", path, "isJsonResponse", b.isJSONResponse, "contentType", b.contentType, "includeChain", b.includeChain, "caName", b.caName)
 
 	// If path is not JSON response, initialize response object as failure
 	b.response = &logical.Response{Data: map[string]interface{}{}}
-	if !b.isJsonResponse {
+	if !b.isJSONResponse {
 		b.response.Data[logical.HTTPRawBody] = []byte{}
 		b.response.Data[logical.HTTPStatusCode] = http.StatusNoContent
 	}
@@ -286,44 +301,48 @@ func (b *caResponseBuilder) IssuerConfig(sc *storageContext, path string, issuer
 	b.sc = sc
 	logger := b.sc.Backend.Logger().Named("caResponseBuilder.IssuerConfig")
 
-	if strings.HasSuffix(path, "/json") {
-		b.isJsonResponse = true
+	switch {
+	case strings.HasSuffix(path, "/json"):
+		b.isJSONResponse = true
 		b.includeChain = true
 		b.encoder = b.getPemEncoder()
-		b.customJsonSchema = map[string]string{
+		b.customJSONSchema = map[string]string{
 			"issuer_name": issuerName,
 			"issuer_id":   issuerName,
 		}
-		logger.Trace("Configuring CA response builder for JSON response", "path", path, "isJsonResponse", b.isJsonResponse, "includeChain", b.includeChain, "encoder", "PEM", "customJsonSchema", b.customJsonSchema)
-	} else if strings.HasSuffix(path, "/pem") {
-		b.isJsonResponse = false
+		logger.Trace("Configuring CA response builder for JSON response", "path", path, "isJsonResponse", b.isJSONResponse, "includeChain", b.includeChain, "encoder", "PEM", "customJsonSchema", b.customJSONSchema)
+
+	case strings.HasSuffix(path, "/pem"):
+		b.isJSONResponse = false
 		b.contentType = "application/pem-certificate-chain"
 		b.includeChain = true
 		b.encoder = b.getPemEncoder()
-		logger.Trace("Configuring CA response builder for PEM response", "path", path, "isJsonResponse", b.isJsonResponse, "includeChain", b.includeChain, "encoder", "PEM")
-	} else if strings.HasSuffix(path, "/der") {
-		b.isJsonResponse = false
+		logger.Trace("Configuring CA response builder for PEM response", "path", path, "isJsonResponse", b.isJSONResponse, "includeChain", b.includeChain, "encoder", "PEM")
+
+	case strings.HasSuffix(path, "/der"):
+		b.isJSONResponse = false
 		b.contentType = "application/pkix-cert"
 		b.includeChain = false
 		b.encoder = b.getDerEncoder()
-		logger.Trace("Configuring CA response builder for DER response", "path", path, "isJsonResponse", b.isJsonResponse, "includeChain", b.includeChain, "encoder", "DER")
-	} else {
-		b.isJsonResponse = true
+		logger.Trace("Configuring CA response builder for DER response", "path", path, "isJsonResponse", b.isJSONResponse, "includeChain", b.includeChain, "encoder", "DER")
+
+	default:
+		b.isJSONResponse = true
 		b.includeChain = true
 		b.encoder = b.getPemEncoder()
-		b.customJsonSchema = map[string]string{
+		b.customJSONSchema = map[string]string{
 			"issuer_name":             issuerName,
 			"issuer_id":               issuerName,
 			"leaf_not_after_behavior": "truncate",
 			"manual_chain":            "null",
 			"usage":                   "read-only,issuing-certificates,crl-signing,ocsp-signing",
 		}
-		logger.Trace("Configuring CA response builder for JSON response", "path", path, "isJsonResponse", b.isJsonResponse, "includeChain", b.includeChain, "encoder", "PEM", "customJsonSchema", b.customJsonSchema)
+		logger.Trace("Configuring CA response builder for JSON response", "path", path, "isJsonResponse", b.isJSONResponse, "includeChain", b.includeChain, "encoder", "PEM", "customJsonSchema", b.customJSONSchema)
 	}
 
 	// If path is not JSON response, initialize response object as failure
 	b.response = &logical.Response{Data: map[string]interface{}{}}
-	if !b.isJsonResponse {
+	if !b.isJSONResponse {
 		b.response.Data[logical.HTTPRawBody] = []byte{}
 		b.response.Data[logical.HTTPStatusCode] = http.StatusNoContent
 	}
@@ -335,27 +354,30 @@ func (b *caResponseBuilder) IssuerConfig(sc *storageContext, path string, issuer
 
 func (b *caResponseBuilder) Build() (*logical.Response, error) {
 	logger := b.sc.Backend.Logger().Named("caResponseBuilder.Build")
-	logger.Debug("Building CA response", "caName", b.caName, "isJsonResponse", b.isJsonResponse, "contentType", b.contentType, "includeChain", b.includeChain, "encoder", "PEM", "customJsonSchema", b.customJsonSchema)
+	logger.Debug("Building CA response", "caName", b.caName, "isJsonResponse", b.isJSONResponse, "contentType", b.contentType, "includeChain", b.includeChain, "encoder", "PEM", "customJsonSchema", b.customJSONSchema)
 
 	// Get CA bundle
 	caBundle, err := b.sc.CA().fetchCaBundle(b.caName)
 	if err != nil {
-		switch err.(type) {
-		case errutil.UserError:
+		var userError errutil.UserError
+		if errors.As(err, &userError) {
 			return logical.ErrorResponse(err.Error()), nil
-		default:
-			// Only return error if path is JSON response. Otherwise, response is already initialized as failure.
-			if b.isJsonResponse {
-				return nil, err
-			} else {
-				return b.response, nil
-			}
 		}
+		var ejbcaError ejbcaAPIError
+		if errors.As(err, &ejbcaError) {
+			return ejbcaError.ToLogicalResponse()
+		}
+		// Only return error if path is JSON response.
+		if b.isJSONResponse {
+			return nil, err
+		}
+		// Otherwise, response is already initialized as failure.
+		return b.response, nil
 	}
 
 	// Encode CA bundle
 	encodedCa := b.encoder(caBundle)
-	if b.isJsonResponse {
+	if b.isJSONResponse {
 		logger.Trace("Building JSON response")
 		// If path is JSON response, initialize response object as success and populate with encoded CA bundle
 		if len(encodedCa) == 0 {
@@ -366,7 +388,7 @@ func (b *caResponseBuilder) Build() (*logical.Response, error) {
 		var chain []string
 		chain = append(chain, encodedCa[1:]...)
 		b.response.Data["ca_chain"] = chain
-		for key, value := range b.customJsonSchema {
+		for key, value := range b.customJSONSchema {
 			b.response.Data[key] = value
 		}
 	} else {
@@ -383,14 +405,15 @@ func (b *caResponseBuilder) Build() (*logical.Response, error) {
 	return b.response, nil
 }
 
-func (c *caStorageContext) getCaChain(ctx context.Context, client *ejbcaClient, issuerDn string) ([]*x509.Certificate, error) {
+func (c *caStorageContext) downloadCaChain(ctx context.Context, client *ejbcaClient, issuerDn string) ([]*x509.Certificate, error) {
 	logger := c.storageContext.Backend.Logger().Named("caStorageContext.getCaChain")
-	logger.Debug("Fetching CA chain from EJBCA", "issuer_dn", issuerDn)
+	logger.Debug("Downloading CA chain from EJBCA", "issuer_dn", issuerDn)
 
 	caResp, err := client.V1CaApi.GetCertificateAsPem(ctx, issuerDn).Execute()
 	if err != nil {
-		return nil, client.createErrorFromEjbcaErr(c.storageContext.Backend, "Failed to fetch CA list from EJBCA", err)
+		return nil, client.EjbcaAPIError(c.storageContext.Backend, "Failed to fetch CA list from EJBCA", err)
 	}
+	defer caResp.Body.Close()
 
 	// Read all bytes from response body
 	encodedBytes, err := io.ReadAll(caResp.Body) // EJBCA returns CA chain as a single PEM file

@@ -1,21 +1,29 @@
 /*
-Copyright 2024 Keyfactor
-Licensed under the Apache License, Version 2.0 (the "License"); you may
-not use this file except in compliance with the License.  You may obtain a
-copy of the License at http://www.apache.org/licenses/LICENSE-2.0.  Unless
-required by applicable law or agreed to in writing, software distributed
-under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES
-OR CONDITIONS OF ANY KIND, either express or implied. See the License for
-thespecific language governing permissions and limitations under the
-License.
+Copyright © 2024 Keyfactor
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 */
-package ejbca_vault_pki_engine
+
+package ejbca
 
 import (
 	"context"
-	"github.com/hashicorp/vault/sdk/framework"
-	"github.com/hashicorp/vault/sdk/logical"
+	"errors"
 	"net/http"
+
+	"github.com/hashicorp/vault/sdk/framework"
+	"github.com/hashicorp/vault/sdk/helper/errutil"
+	"github.com/hashicorp/vault/sdk/logical"
 )
 
 // Path                                          | Issuer         | CSR required | Subject to role restriction
@@ -419,48 +427,87 @@ RSA key-type issuer. Defaults to false.`,
 }
 
 func (b *ejbcaBackend) pathIssue(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-    logger := b.Logger().Named("ejbcaBackend.pathIssue")
-    logger.Debug("Issue path called")
+	logger := b.Logger().Named("ejbcaBackend.pathIssue")
+	logger.Debug("Issue path called")
 
-    if b.isRunningOnPerformanceStandby() {
-        logger.Debug("Running on performance standby - anticipating Vault to forward request to active node - returning backend readonly error")
-        // If we're running on performance standby, read requests are the only valid request.
-        // Forward the request to the primary node.
-        return nil, logical.ErrReadOnly 
-    }
+	if b.isRunningOnPerformanceStandby() {
+		logger.Debug("Running on performance standby - anticipating Vault to forward request to active node - returning backend readonly error")
+		// If we're running on performance standby, read requests are the only valid request.
+		// Forward the request to the primary node.
+		return nil, logical.ErrReadOnly
+	}
 
 	builder := &issueSignResponseBuilder{}
-	return builder.Config(b.makeStorageContext(ctx, req.Storage), req.Path, data).IssueCertificate()
+	response, err := builder.Config(b.makeStorageContext(ctx, req.Storage), req.Path, data).IssueCertificate()
+	if err != nil {
+		var userError errutil.UserError
+		if errors.As(err, &userError) {
+			return logical.ErrorResponse(err.Error()), nil
+		}
+		var ejbcaError ejbcaAPIError
+		if errors.As(err, &ejbcaError) {
+			return ejbcaError.ToLogicalResponse()
+		}
+
+		return nil, err
+	}
+	return response, nil
 }
 
 func (b *ejbcaBackend) pathSign(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-    logger := b.Logger().Named("ejbcaBackend.pathSign")
-    logger.Debug("Sign path called")
+	logger := b.Logger().Named("ejbcaBackend.pathSign")
+	logger.Debug("Sign path called")
 
-    if b.isRunningOnPerformanceStandby() {
-        logger.Debug("Running on performance standby - anticipating Vault to forward request to active node")
-        // If we're running on performance standby, read requests are the only valid request.
-        // Forward the request to the primary node.
-        return nil, logical.ErrReadOnly 
-    }
+	if b.isRunningOnPerformanceStandby() {
+		logger.Debug("Running on performance standby - anticipating Vault to forward request to active node")
+		// If we're running on performance standby, read requests are the only valid request.
+		// Forward the request to the primary node.
+		return nil, logical.ErrReadOnly
+	}
 
 	builder := &issueSignResponseBuilder{}
-	return builder.Config(b.makeStorageContext(ctx, req.Storage), req.Path, data).SignCertificate()
+	response, err := builder.Config(b.makeStorageContext(ctx, req.Storage), req.Path, data).SignCertificate()
+	if err != nil {
+		var userError errutil.UserError
+		if errors.As(err, &userError) {
+			return logical.ErrorResponse(err.Error()), nil
+		}
+		var ejbcaError ejbcaAPIError
+		if errors.As(err, &ejbcaError) {
+			return ejbcaError.ToLogicalResponse()
+		}
+
+		return nil, err
+	}
+	return response, nil
 }
 
 func (b *ejbcaBackend) pathSignVerbatim(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-    logger := b.Logger().Named("ejbcaBackend.pathSignVerbatim")
-    logger.Debug("Sign Verbatim path called")
+	logger := b.Logger().Named("ejbcaBackend.pathSignVerbatim")
+	logger.Debug("Sign Verbatim path called")
 
-    if b.isRunningOnPerformanceStandby() {
-        logger.Debug("Running on performance standby - anticipating Vault to forward request to active node - returning backend readonly error")
-        // If we're running on performance standby, read requests are the only valid request.
-        // Forward the request to the primary node.
-        return nil, logical.ErrReadOnly 
-    }
+	if b.isRunningOnPerformanceStandby() {
+		logger.Debug("Running on performance standby - anticipating Vault to forward request to active node - returning backend readonly error")
+		// If we're running on performance standby, read requests are the only valid request.
+		// Forward the request to the primary node.
+		return nil, logical.ErrReadOnly
+	}
 
 	builder := &issueSignResponseBuilder{}
-	return builder.Config(b.makeStorageContext(ctx, req.Storage), req.Path, data).SignCertificate()
+	response, err := builder.Config(b.makeStorageContext(ctx, req.Storage), req.Path, data).SignCertificate()
+	if err != nil {
+		var userError errutil.UserError
+		if errors.As(err, &userError) {
+			return logical.ErrorResponse(err.Error()), nil
+		}
+		var ejbcaError ejbcaAPIError
+		if errors.As(err, &ejbcaError) {
+			return ejbcaError.ToLogicalResponse()
+		}
+
+		return nil, err
+	}
+	return response, nil
 }
 
 const pathIssueHelpSyn = `
