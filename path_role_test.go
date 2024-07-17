@@ -1,23 +1,29 @@
 /*
-Copyright 2024 Keyfactor
-Licensed under the Apache License, Version 2.0 (the "License"); you may
-not use this file except in compliance with the License.  You may obtain a
-copy of the License at http://www.apache.org/licenses/LICENSE-2.0.  Unless
-required by applicable law or agreed to in writing, software distributed
-under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES
-OR CONDITIONS OF ANY KIND, either express or implied. See the License for
-thespecific language governing permissions and limitations under the
-License.
+Copyright © 2024 Keyfactor
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 */
-package ejbca_vault_pki_engine
+
+package ejbca
 
 import (
 	"context"
 	"fmt"
-	"github.com/hashicorp/vault/sdk/logical"
-	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
+
+	"github.com/hashicorp/vault/sdk/logical"
+	"github.com/stretchr/testify/assert"
 )
 
 const (
@@ -107,7 +113,7 @@ func TestRole(t *testing.T) {
 	})
 }
 
-func testRoleCreate(t *testing.T, b logical.Backend, s logical.Storage, d map[string]interface{}) error {
+func testRoleCreate(_ *testing.T, b logical.Backend, s logical.Storage, d map[string]interface{}) error {
 	resp, err := b.HandleRequest(context.Background(), &logical.Request{
 		Operation: logical.UpdateOperation,
 		Path:      roleStoragePath + testRoleName,
@@ -125,7 +131,7 @@ func testRoleCreate(t *testing.T, b logical.Backend, s logical.Storage, d map[st
 	return nil
 }
 
-func testRoleRead(t *testing.T, b logical.Backend, s logical.Storage, expected map[string]interface{}) error {
+func testRoleRead(_ *testing.T, b logical.Backend, s logical.Storage, expected map[string]interface{}) error {
 	resp, err := b.HandleRequest(context.Background(), &logical.Request{
 		Operation: logical.ReadOperation,
 		Path:      roleStoragePath + testRoleName,
@@ -159,7 +165,7 @@ func testRoleRead(t *testing.T, b logical.Backend, s logical.Storage, expected m
 	return nil
 }
 
-func testRoleDelete(t *testing.T, b logical.Backend, s logical.Storage) error {
+func testRoleDelete(_ *testing.T, b logical.Backend, s logical.Storage) error {
 	resp, err := b.HandleRequest(context.Background(), &logical.Request{
 		Operation: logical.DeleteOperation,
 		Path:      roleStoragePath + testRoleName,

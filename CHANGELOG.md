@@ -1,3 +1,15 @@
+# v1.5.0
+## Fixes
+* Patched bug that required the `allow_any_name` or `allowed_domains=[""]` role parameters to issue/sign certificates with no CN.
+
+## Chores
+* Upgrade from Go `v1.21` to `v1.22`.
+* Implement more strict golangci-lint policy.
+
+## Features
+* If upstream EJBCA API call fails, the HTTP status code is propogated to the Vault user via the Vault API status code.
+* Implement OAuth 2.0 "client credentials" token flow as a supported authentication mechanism to EJBCA.
+
 # v1.4.0
 ## Fixes
 * Paths that need to write to the Storage backend now forward the request to the primary node. This is important in Enterprise HA deployments where Performance Standby Nodes are allowed to handle read requests/paths.
