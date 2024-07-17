@@ -1,26 +1,33 @@
 /*
-Copyright 2024 Keyfactor
-Licensed under the Apache License, Version 2.0 (the "License"); you may
-not use this file except in compliance with the License.  You may obtain a
-copy of the License at http://www.apache.org/licenses/LICENSE-2.0.  Unless
-required by applicable law or agreed to in writing, software distributed
-under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES
-OR CONDITIONS OF ANY KIND, either express or implied. See the License for
-thespecific language governing permissions and limitations under the
-License.
+Copyright © 2024 Keyfactor
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 */
-package ejbca_vault_pki_engine
+
+package ejbca
 
 import (
 	"context"
 	"encoding/base64"
 	"encoding/pem"
-	"github.com/hashicorp/vault/sdk/framework"
-	"github.com/hashicorp/vault/sdk/helper/errutil"
-	"github.com/hashicorp/vault/sdk/logical"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/hashicorp/vault/sdk/framework"
+	"github.com/hashicorp/vault/sdk/helper/errutil"
+	"github.com/hashicorp/vault/sdk/logical"
 )
 
 const (
@@ -312,7 +319,7 @@ func pathFetch(b *ejbcaBackend) []*framework.Path {
 	}
 }
 
-func (b *ejbcaBackend) pathFetchCertList(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+func (b *ejbcaBackend) pathFetchCertList(ctx context.Context, req *logical.Request, _ *framework.FieldData) (*logical.Response, error) {
 	logger := b.Logger().Named("ejbcaBackend.pathFetchCertList")
 	sc := b.makeStorageContext(ctx, req.Storage)
 
@@ -326,7 +333,7 @@ func (b *ejbcaBackend) pathFetchCertList(ctx context.Context, req *logical.Reque
 	return logical.ListResponse(certs), nil
 }
 
-func (b *ejbcaBackend) pathFetchRevokedCertList(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+func (b *ejbcaBackend) pathFetchRevokedCertList(ctx context.Context, req *logical.Request, _ *framework.FieldData) (*logical.Response, error) {
 	logger := b.Logger().Named("ejbcaBackend.pathFetchRevokedCertList")
 	sc := b.makeStorageContext(ctx, req.Storage)
 
@@ -356,24 +363,21 @@ func (b *ejbcaBackend) pathFetchCert(ctx context.Context, req *logical.Request, 
 	logger.Debug("Fetching certificate bundle by serial number", "serial", serial)
 	entry, err := sc.Cert().fetchCertBundleBySerial(serial)
 	if err != nil {
-		switch err.(type) {
-		case errutil.UserError:
+		var userError errutil.UserError
+		if errors.As(err, &userError) {
 			return logical.ErrorResponse(err.Error()), nil
-		default:
-			return nil, err
 		}
+		return nil, err
 	}
 
 	// Get revocation details if applicable
 	revokedEntry, err := sc.Cert().fetchRevokedCertBySerial(serial)
 	if err != nil {
-		switch err.(type) {
-		case errutil.UserError:
-			response := logical.ErrorResponse(err.Error())
-			return response, nil
-		default:
-			return nil, err
+		var userError errutil.UserError
+		if errors.As(err, &userError) {
+			return logical.ErrorResponse(err.Error()), nil
 		}
+		return nil, err
 	}
 
 	response := &logical.Response{
@@ -459,7 +463,7 @@ func (b *ejbcaBackend) pathFetchCertRaw(ctx context.Context, req *logical.Reques
 	return response, nil
 }
 
-func (b *ejbcaBackend) pathFetchCA(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+func (b *ejbcaBackend) pathFetchCA(ctx context.Context, req *logical.Request, _ *framework.FieldData) (*logical.Response, error) {
 	b.Logger().Named("ejbcaBackend.pathFetchCA").Debug("Fetching CA")
 	sc := b.makeStorageContext(ctx, req.Storage)
 
