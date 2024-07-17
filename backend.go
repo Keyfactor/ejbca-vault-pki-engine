@@ -1,24 +1,35 @@
 /*
-Copyright 2024 Keyfactor
-Licensed under the Apache License, Version 2.0 (the "License"); you may
-not use this file except in compliance with the License.  You may obtain a
-copy of the License at http://www.apache.org/licenses/LICENSE-2.0.  Unless
-required by applicable law or agreed to in writing, software distributed
-under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES
-OR CONDITIONS OF ANY KIND, either express or implied. See the License for
-thespecific language governing permissions and limitations under the
-License.
+Copyright © 2024 Keyfactor
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 */
-package ejbca_vault_pki_engine
+
+package ejbca
 
 import (
 	"context"
-	"math/rand"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"fmt"
+	"math/big"
 	"strings"
 	"sync"
 
+	"github.com/Keyfactor/ejbca-go-client-sdk/api/ejbca"
 	"github.com/hashicorp/vault/sdk/framework"
 	"github.com/hashicorp/vault/sdk/helper/consts"
+	"github.com/hashicorp/vault/sdk/helper/errutil"
 	"github.com/hashicorp/vault/sdk/logical"
 )
 
@@ -96,7 +107,7 @@ func (b *ejbcaBackend) reset() {
 
 // invalidate clears an existing client configuration in
 // the backend
-func (b *ejbcaBackend) invalidate(ctx context.Context, key string) {
+func (b *ejbcaBackend) invalidate(_ context.Context, key string) {
 	if key == "config" {
 		b.reset()
 	}
@@ -130,17 +141,104 @@ func (sc *storageContext) getClient() (*ejbcaClient, error) {
 		config = new(ejbcaConfig)
 	}
 
-	logger.Trace("Creating new EJBCA client")
-	sc.Backend.client, err = newClient(config)
+	logger.Trace("Creating new EJBCA authenticator")
+	authenticator, err := sc.Backend.newAuthenticator(sc.Context, config)
 	if err != nil {
 		return nil, err
 	}
+	if authenticator == nil {
+		logger.Error("Authenticator is nil")
+		return nil, fmt.Errorf("Authenticator is nil")
+	}
+
+	logger.Trace("Creating new EJBCA client")
+	sdkConfig := ejbca.NewConfiguration()
+	sdkConfig.Host = config.Hostname
+	sdkConfig.SetAuthenticator(authenticator)
+
+	client, err := ejbca.NewAPIClient(sdkConfig)
+	if err != nil {
+		return nil, err
+	}
+	sc.Backend.client = &ejbcaClient{client}
 
 	return sc.Backend.client, nil
 }
 
+func (b *ejbcaBackend) newAuthenticator(ctx context.Context, config *ejbcaConfig) (ejbca.Authenticator, error) {
+	var err error
+	logger := b.Logger().Named("ejbcaBackend.newAuthenticator")
+
+	var caChain []*x509.Certificate
+	if config.CaCert != "" {
+		logger.Info("CA chain present - Parsing CA chain from configuration")
+
+		blocks := decodePEMBytes([]byte(config.CaCert))
+		if len(blocks) == 0 {
+			return nil, errutil.UserError{Err: "didn't find pem certificate in ca_cert"}
+		}
+
+		for _, block := range blocks {
+			// Parse the PEM block into an x509 certificate
+			cert, err := x509.ParseCertificate(block.Bytes)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse CA certificate: %w", err)
+			}
+
+			caChain = append(caChain, cert)
+		}
+
+		logger.Debug("Parsed CA chain", "length", len(caChain))
+	}
+
+	var authenticator ejbca.Authenticator
+	switch {
+	case config.ClientCert != "" && config.ClientKey != "":
+		logger.Info("Creating mTLS authenticator")
+
+		var tlsCert tls.Certificate
+		tlsCert, err := tls.X509KeyPair([]byte(config.ClientCert), []byte(config.ClientKey))
+		if err != nil {
+			return nil, fmt.Errorf("failed to load client certificate: %w", err)
+		}
+
+		authenticator, err = ejbca.NewMTLSAuthenticatorBuilder().
+			WithCaCertificates(caChain).
+			WithClientCertificate(&tlsCert).
+			Build()
+		if err != nil {
+			logger.Error("Failed to build mTLS authenticator")
+			return nil, fmt.Errorf("failed to build MTLS authenticator: %w", err)
+		}
+
+		logger.Info("Created mTLS authenticator")
+	case config.TokenURL != "" && config.ClientID != "" && config.ClientSecret != "":
+		logger.Info("Creating OAuth authenticator")
+
+		authenticator, err = ejbca.NewOAuthAuthenticatorBuilder().
+			WithCaCertificates(caChain).
+			WithTokenUrl(config.TokenURL).
+			WithClientId(config.ClientID).
+			WithClientSecret(config.ClientSecret).
+			WithAudience(config.Audience).
+			WithScopes(config.Scopes).
+			Build()
+		if err != nil {
+			logger.Error("Failed to build OAuth authenticator")
+			return nil, fmt.Errorf("failed to build OAuth authenticator: %w", err)
+		}
+
+		logger.Info("Created OAuth authenticator")
+	default:
+		logger.Error("no authentication method configured")
+		return nil, fmt.Errorf("no authentication method configured")
+	}
+
+	return authenticator, nil
+}
+
 func (b *ejbcaBackend) isRunningOnPerformanceStandby() bool {
-    return b.System().ReplicationState().HasState(consts.ReplicationPerformanceStandby)
+	return b.System().ReplicationState().HasState(consts.ReplicationPerformanceStandby)
 }
 
 // backendHelp should contain help information for the backend
@@ -150,11 +248,15 @@ After mounting this backend, credentials to manage certificates must be configur
 with the "config/" endpoints.
 `
 
-func generateRandomString(length int) string {
+func generateRandomString(length int) (string, error) {
 	letters := []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 	b := make([]rune, length)
 	for i := range b {
-		b[i] = letters[rand.Intn(len(letters))]
+		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(letters))))
+		if err != nil {
+			return "", err
+		}
+		b[i] = letters[num.Int64()]
 	}
-	return string(b)
+	return string(b), nil
 }

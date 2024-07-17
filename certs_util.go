@@ -1,15 +1,20 @@
 /*
-Copyright 2024 Keyfactor
-Licensed under the Apache License, Version 2.0 (the "License"); you may
-not use this file except in compliance with the License.  You may obtain a
-copy of the License at http://www.apache.org/licenses/LICENSE-2.0.  Unless
-required by applicable law or agreed to in writing, software distributed
-under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES
-OR CONDITIONS OF ANY KIND, either express or implied. See the License for
-thespecific language governing permissions and limitations under the
-License.
+Copyright © 2024 Keyfactor
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 */
-package ejbca_vault_pki_engine
+
+package ejbca
 
 import (
 	"crypto"
@@ -107,7 +112,7 @@ func (r *revokeBuilder) Config(sc *storageContext, path string, data *framework.
 		logger.Trace("Certificate present with request, serializing as PEM")
 		cert, err := serializePemCert(certificate.(string))
 		if err != nil {
-            logger.Error(fmt.Sprintf("Error serializing certificate: %s", err))
+			logger.Error(fmt.Sprintf("Error serializing certificate: %s", err))
 			r.errorResponse = logical.ErrorResponse(fmt.Sprintf("Error serializing certificate: %s", err))
 			return r
 		}
@@ -172,27 +177,30 @@ func (r *revokeBuilder) RevokeCertificate() (*logical.Response, error) {
 	}
 
 	logger.Debug(fmt.Sprintf("Calling EJBCA to revoke certificate with serial number %s [%s]", r.storageContextSerialNumber, r.normalizedHexSerialNumber))
-	execute, _, err := client.V1CertificateApi.RevokeCertificate(r.storageContext.Context, r.issuerDn, r.normalizedHexSerialNumber).Reason("CESSATION_OF_OPERATION").Execute()
+	execute, b, err := client.V1CertificateApi.RevokeCertificate(r.storageContext.Context, r.issuerDn, r.normalizedHexSerialNumber).Reason("CESSATION_OF_OPERATION").Execute()
 	if err != nil {
-		ejbcaErr := client.createErrorFromEjbcaErr(r.storageContext.Backend, fmt.Sprintf("failed to revoke certificate with serial number %s [%s]", r.storageContextSerialNumber, r.normalizedHexSerialNumber), err)
-		logger.Error(ejbcaErr.Error())
-		return logical.ErrorResponse(ejbcaErr.Error()), nil
+		var ejbcaError ejbcaAPIError
+		if errors.As(client.EjbcaAPIError(r.storageContext.Backend, fmt.Sprintf("failed to revoke certificate with serial number %s [%s]", r.storageContextSerialNumber, r.normalizedHexSerialNumber), err), &ejbcaError) {
+			return ejbcaError.ToLogicalResponse()
+		}
+		return nil, err
 	}
+	defer b.Body.Close()
 
 	logger.Debug(fmt.Sprintf("Certificate with serial number %s [%s] revoked successfully", r.storageContextSerialNumber, r.normalizedHexSerialNumber))
 
-    // We only want to remove the certificate from the backend if it is present - the user could have enrolled
-    // the certificate by other measures.
-    _, err = r.storageContext.Cert().fetchCertBundleBySerial(r.storageContextSerialNumber)
-    if err == nil {
-        logger.Debug("Deleting certificate entry from backend")
-        err = r.storageContext.Cert().deleteCert(r.storageContextSerialNumber)
-        if err != nil {
-            message := fmt.Sprintf("Failed delete certificate entry from backend: %s", err)
-            logger.Error(message)
-            return logical.ErrorResponse(message), nil
-        }
-    }
+	// We only want to remove the certificate from the backend if it is present - the user could have enrolled
+	// the certificate by other measures.
+	_, err = r.storageContext.Cert().fetchCertBundleBySerial(r.storageContextSerialNumber)
+	if err == nil {
+		logger.Debug("Deleting certificate entry from backend")
+		err = r.storageContext.Cert().deleteCert(r.storageContextSerialNumber)
+		if err != nil {
+			message := fmt.Sprintf("Failed delete certificate entry from backend: %s", err)
+			logger.Error(message)
+			return logical.ErrorResponse(message), nil
+		}
+	}
 
 	bundle, err := r.parsedCertBundle.ToCertBundle()
 	if err != nil {
@@ -282,6 +290,7 @@ func (b *issueSignResponseBuilder) SignCertificate() (*logical.Response, error) 
 	}
 
 	logger.Trace("Getting CSR")
+	// GetCsr always returns an error As an error interface in errutil
 	csr, err := b.helper.GetCsr()
 	if err != nil {
 		return nil, err
@@ -301,7 +310,10 @@ func (b *issueSignResponseBuilder) signCsr(csr *x509.CertificateRequest) (*ejbca
 	logger := b.storageContext.Backend.Logger().Named("issueSignResponseBuilder.signCsr")
 	logger.Debug("Signing CSR")
 
-	endEntityPassword := generateRandomString(16)
+	endEntityPassword, err := generateRandomString(16)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate random password: %w", err)
+	}
 
 	enrollConfig := ejbca.EnrollCertificateRestRequest{}
 	enrollConfig.SetUsername(b.helper.getEndEntityName(csr))
@@ -313,13 +325,13 @@ func (b *issueSignResponseBuilder) signCsr(csr *x509.CertificateRequest) (*ejbca
 	enrollConfig.SetCertificateProfileName(b.helper.getCertificateProfileName())
 	enrollConfig.SetEndEntityProfileName(b.helper.getEndEntityProfileName())
 	enrollConfig.SetIncludeChain(b.helper.includeChain())
-	enrollConfig.SetAccountBindingId(b.helper.getAccountBindingId())
+	enrollConfig.SetAccountBindingId(b.helper.getAccountBindingID())
 
 	logger.Trace("EJBCA PKCS#10 Request CA name", "caName", b.helper.getCaName())
 	logger.Trace("EJBCA PKCS#10 Request certificate profile name", "certificateProfileName", b.helper.getCertificateProfileName())
 	logger.Trace("EJBCA PKCS#10 Request end entity profile name", "endEntityProfileName", b.helper.getEndEntityProfileName())
 	logger.Trace("EJBCA PKCS#10 Request include chain", "includeChain", b.helper.includeChain())
-	logger.Trace("EJBCA PKCS#10 Request account binding ID", "accountBindingId", b.helper.getAccountBindingId())
+	logger.Trace("EJBCA PKCS#10 Request account binding ID", "accountBindingId", b.helper.getAccountBindingID())
 
 	// Retrieve the EJBCA client from the storage context
 	client, err := b.storageContext.getClient()
@@ -329,10 +341,11 @@ func (b *issueSignResponseBuilder) signCsr(csr *x509.CertificateRequest) (*ejbca
 
 	// Send the CSR to EJBCA to be signed
 	logger.Trace("Enrolling certificate with EJBCA using PKCS#10 request")
-	enrollResponse, _, err := client.V1CertificateApi.EnrollPkcs10Certificate(b.storageContext.Context).EnrollCertificateRestRequest(enrollConfig).Execute()
+	enrollResponse, r, err := client.V1CertificateApi.EnrollPkcs10Certificate(b.storageContext.Context).EnrollCertificateRestRequest(enrollConfig).Execute()
 	if err != nil {
-		return nil, client.createErrorFromEjbcaErr(b.storageContext.Backend, "error enrolling certificate with EJBCA. verify that the certificate profile name, end entity profile name, and certificate authority name are appropriate for the certificate request.", err)
+		return nil, client.EjbcaAPIError(b.storageContext.Backend, "error enrolling certificate with EJBCA. verify that the certificate profile name, end entity profile name, and certificate authority name are appropriate for the certificate request.", err)
 	}
+	defer r.Body.Close()
 
 	return enrollResponse, nil
 }
@@ -373,7 +386,8 @@ func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.Cer
 
 	var certBytes []byte
 
-	if enrollResponse.GetResponseFormat() == "PEM" {
+	switch enrollResponse.GetResponseFormat() {
+	case "PEM":
 		logger.Trace("EJBCA returned certificate in PEM format - serializing")
 
 		// Extract the certificate from the PEM string
@@ -382,7 +396,8 @@ func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.Cer
 			return nil, errors.New("failed to parse certificate PEM")
 		}
 		certBytes = block.Bytes
-	} else if enrollResponse.GetResponseFormat() == "DER" {
+
+	case "DER":
 		logger.Trace("EJBCA returned certificate in DER format - serializing")
 
 		// Depending on how the EJBCA API was called, the certificate will either be single b64 encoded or double b64 encoded
@@ -397,7 +412,8 @@ func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.Cer
 			}
 		}
 		certBytes = append(certBytes, bytes...)
-	} else {
+
+	default:
 		return nil, errors.New("ejbca returned unknown certificate format: " + enrollResponse.GetResponseFormat())
 	}
 
@@ -480,7 +496,7 @@ func (i *issueSignHelper) SerializeCertificateResponse(enrollResponse *ejbca.Cer
 			Data: data,
 		}
 	default:
-		resp = i.storageContext.Backend.Secret(SecretCertsEjbcaType).Response(
+		resp = i.storageContext.Backend.Secret(EjbcaSecretCertsTypeName).Response(
 			data,
 			map[string]interface{}{
 				"serial_number": certBundle.SerialNumber,
@@ -529,7 +545,7 @@ func (i *issueSignHelper) SetRole() error {
 		return err
 	}
 	if role == nil && (roleRequired || roleName != "") {
-		return fmt.Errorf("unknown role: %s", roleName)
+		return errutil.UserError{Err: fmt.Sprintf("unknown role: %s", roleName)}
 	}
 
 	if i.isSignVerbatim() {
@@ -656,7 +672,7 @@ func (i *issueSignHelper) getEndEntityName(csr *x509.CertificateRequest) string 
 		}
 	}
 
-	//* dns: Use the first DNSName from the CertificateRequest's DNSNames SANs
+	// dns: Use the first DNSName from the CertificateRequest's DNSNames SANs
 	if i.role.EndEntityName == "dns" || i.role.EndEntityName == "" {
 		if len(csr.DNSNames) > 0 && csr.DNSNames[0] != "" {
 			eeName = csr.DNSNames[0]
@@ -665,7 +681,7 @@ func (i *issueSignHelper) getEndEntityName(csr *x509.CertificateRequest) string 
 		}
 	}
 
-	//* uri: Use the first URI from the CertificateRequest's URI Sans
+	// uri: Use the first URI from the CertificateRequest's URI Sans
 	if i.role.EndEntityName == "uri" || i.role.EndEntityName == "" {
 		if len(csr.URIs) > 0 {
 			eeName = csr.URIs[0].String()
@@ -674,7 +690,7 @@ func (i *issueSignHelper) getEndEntityName(csr *x509.CertificateRequest) string 
 		}
 	}
 
-	//* ip: Use the first IPAddress from the CertificateRequest's IPAddresses SANs
+	// ip: Use the first IPAddress from the CertificateRequest's IPAddresses SANs
 	if i.role.EndEntityName == "ip" || i.role.EndEntityName == "" {
 		if len(csr.IPAddresses) > 0 {
 			eeName = csr.IPAddresses[0].String()
@@ -696,18 +712,18 @@ func (i *issueSignHelper) getEndEntityName(csr *x509.CertificateRequest) string 
 	return eeName
 }
 
-func (i *issueSignHelper) getAccountBindingId() string {
+func (i *issueSignHelper) getAccountBindingID() string {
 	// If an account binding ID was specified on the role, use that
-	if i.role.AccountBindingId != "" {
-		return i.role.AccountBindingId
+	if i.role.AccountBindingID != "" {
+		return i.role.AccountBindingID
 	}
 
 	// Otherwise, use the account binding ID from the request
-	accountId, ok := i.data.GetOk("account_binding_id")
+	accountID, ok := i.data.GetOk("account_binding_id")
 	if !ok {
 		return ""
 	}
-	return accountId.(string)
+	return accountID.(string)
 }
 
 func (i *issueSignHelper) includeChain() bool {
@@ -759,7 +775,7 @@ func (i *issueSignHelper) getSubject() (pkix.Name, error) {
 	}, nil
 }
 
-func (i *issueSignHelper) getDnsNames() ([]string, error) {
+func (i *issueSignHelper) getDNSNames() ([]string, error) {
 	var dnsNames []string
 
 	if altNames := i.data.Get("alt_names").(string); len(altNames) > 0 {
@@ -786,7 +802,7 @@ func (i *issueSignHelper) getDnsNames() ([]string, error) {
 	return dnsNames, nil
 }
 
-func (i *issueSignHelper) getEmailAddresses() ([]string, error) {
+func (i *issueSignHelper) getEmailAddresses() []string {
 	var emails []string
 
 	if altNames := i.data.Get("alt_names").(string); len(altNames) > 0 {
@@ -798,10 +814,10 @@ func (i *issueSignHelper) getEmailAddresses() ([]string, error) {
 		}
 	}
 
-	return emails, nil
+	return emails
 }
 
-func (i *issueSignHelper) getIpAddresses() ([]net.IP, error) {
+func (i *issueSignHelper) getIPAddresses() ([]net.IP, error) {
 	var result []net.IP
 
 	if ipAlt := i.data.Get("ip_sans").([]string); len(ipAlt) > 0 {
@@ -821,7 +837,7 @@ func (i *issueSignHelper) getIpAddresses() ([]net.IP, error) {
 	return result, nil
 }
 
-func (i *issueSignHelper) getUriNames() ([]*url.URL, error) {
+func (i *issueSignHelper) getURINames() ([]*url.URL, error) {
 	var URIs []*url.URL
 
 	if uriAlt := i.data.Get("uri_sans").([]string); len(uriAlt) > 0 {
@@ -883,25 +899,22 @@ func (i *issueSignHelper) CreateCsr() (*x509.CertificateRequest, error) {
 	}
 	logger.Trace("Subject for CSR", "subject", subject)
 
-	names, err := i.getDnsNames()
+	names, err := i.getDNSNames()
 	if err != nil {
 		return nil, err
 	}
 	logger.Trace("DNS names for CSR", "names", names)
 
-	emailAddresses, err := i.getEmailAddresses()
-	if err != nil {
-		return nil, err
-	}
+	emailAddresses := i.getEmailAddresses()
 	logger.Trace("Email addresses for CSR", "emailAddresses", emailAddresses)
 
-	ipAddresses, err := i.getIpAddresses()
+	ipAddresses, err := i.getIPAddresses()
 	if err != nil {
 		return nil, err
 	}
 	logger.Trace("IP addresses for CSR", "ipAddresses", ipAddresses)
 
-	uriNames, err := i.getUriNames()
+	uriNames, err := i.getURINames()
 	if err != nil {
 		return nil, err
 	}
@@ -954,7 +967,7 @@ func (i *issueSignHelper) GetCsr() (*x509.CertificateRequest, error) {
 
 	csr, ok := i.data.GetOk("csr")
 	if !ok {
-		return nil, fmt.Errorf("csr is required")
+		return nil, errutil.UserError{Err: "csr is a required field"}
 	}
 
 	pemBlock, _ := pem.Decode([]byte(csr.(string)))
@@ -1144,8 +1157,12 @@ func (i *issueSignHelper) validateNames(csr *x509.CertificateRequest) error {
 	logger.Debug("Validating CSR names")
 
 	// Compile the list of names to validate
-	names := append(csr.DNSNames, csr.EmailAddresses...)
-	names = append(names, csr.Subject.CommonName)
+	var names []string
+	names = append(names, csr.EmailAddresses...)
+	names = append(names, csr.DNSNames...)
+	if csr.Subject.CommonName != "" {
+		names = append(names, csr.Subject.CommonName)
+	}
 
 	for j, name := range names {
 		logger.Debug(fmt.Sprintf("Validating %s [%d/%d]", name, j+1, len(names)))
@@ -1370,7 +1387,7 @@ func serializePemPrivateKey(privateKey string) (crypto.PrivateKey, error) {
 			// If we failed to parse the key as PKCS#1, try to parse it as ECC
 			key, err = x509.ParseECPrivateKey(block.Bytes)
 			if err != nil {
-				return nil, fmt.Errorf("failed to parse private key as PKCS#8, PKCS#1, or ECC: %v", err)
+				return nil, fmt.Errorf("failed to parse private key as PKCS#8, PKCS#1, or ECC: %w", err)
 			}
 		}
 	}
@@ -1392,7 +1409,7 @@ func privateKeyMatchesCertificate(cert *x509.Certificate, key crypto.PrivateKey)
 }
 
 func normalizeSerial(serial string) string {
-	return strings.Replace(strings.ToLower(serial), ":", "-", -1)
+	return strings.ReplaceAll(strings.ToLower(serial), ":", "-")
 }
 
 func denormalizeSerial(serial string) string {
