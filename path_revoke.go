@@ -1,16 +1,20 @@
 /*
-Copyright 2024 Keyfactor
-Licensed under the Apache License, Version 2.0 (the "License"); you may
-not use this file except in compliance with the License.  You may obtain a
-copy of the License at http://www.apache.org/licenses/LICENSE-2.0.  Unless
-required by applicable law or agreed to in writing, software distributed
-under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES
-OR CONDITIONS OF ANY KIND, either express or implied. See the License for
-thespecific language governing permissions and limitations under the
-License.
+Copyright © 2024 Keyfactor
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 */
 
-package ejbca_vault_pki_engine
+package ejbca
 
 import (
 	"context"
@@ -141,15 +145,15 @@ func pathRevokeWithKey(b *ejbcaBackend) []*framework.Path {
 }
 
 func (b *ejbcaBackend) revokeCertificate(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-    logger := b.Logger().Named("ejbcaBackend.revokeCertificate")
-    logger.Debug("Path Revoke called")
+	logger := b.Logger().Named("ejbcaBackend.revokeCertificate")
+	logger.Debug("Path Revoke called")
 
-    if b.isRunningOnPerformanceStandby() {
-        logger.Debug("Running on performance standby - anticipating Vault to forward request to active node - returning backend readonly error")
-        // If we're running on performance standby, read requests are the only valid request.
-        // Forward the request to the primary node.
-        return nil, logical.ErrReadOnly 
-    }
+	if b.isRunningOnPerformanceStandby() {
+		logger.Debug("Running on performance standby - anticipating Vault to forward request to active node - returning backend readonly error")
+		// If we're running on performance standby, read requests are the only valid request.
+		// Forward the request to the primary node.
+		return nil, logical.ErrReadOnly
+	}
 
 	builder := &revokeBuilder{}
 	return builder.Config(b.makeStorageContext(ctx, req.Storage), req.Path, data).RevokeCertificate()
