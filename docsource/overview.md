@@ -21,9 +21,9 @@ with minimal changes to existing Vault configurations.
 
 # Badges
 
-<a href="https://ejbca.org"><img src="https://img.shields.io/badge/valid_for-ejbca_community-FF9371" alt="Valid for EJBCA Community"></a>
-<a href="https://www.keyfactor.com/products/ejbca-enterprise/"><img src="https://img.shields.io/badge/valid_for-ejbca_enterprise-5F61FF" alt="Valid for EJBCA Enterprise"></a>
-<a href="https://goreportcard.com/report/github.com/keyfactor/ejbca-vault-pki-engine"><img src="https://goreportcard.com/badge/github.com/keyfactor/ejbca-vault-pki-engine" alt="Go Report Card"></a>
+[![Valid for EJBCA Community](https://img.shields.io/badge/valid_for-ejbca_community-FF9371)](https://ejbca.org)
+[![Valid for EJBCA Enterprise](https://img.shields.io/badge/valid_for-ejbca_enterprise-5F61FF)](https://www.keyfactor.com/products/ejbca-enterprise/)
+[![Go Report Card](https://goreportcard.com/badge/github.com/keyfactor/ejbca-vault-pki-engine)](https://goreportcard.com/report/github.com/keyfactor/ejbca-vault-pki-engine)
 
 # Getting Started
 
