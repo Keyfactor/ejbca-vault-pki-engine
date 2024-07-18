@@ -1,23 +1,30 @@
 /*
-Copyright 2024 Keyfactor
-Licensed under the Apache License, Version 2.0 (the "License"); you may
-not use this file except in compliance with the License.  You may obtain a
-copy of the License at http://www.apache.org/licenses/LICENSE-2.0.  Unless
-required by applicable law or agreed to in writing, software distributed
-under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES
-OR CONDITIONS OF ANY KIND, either express or implied. See the License for
-thespecific language governing permissions and limitations under the
-License.
+Copyright © 2024 Keyfactor
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 */
-package ejbca_vault_pki_engine
+
+package ejbca
 
 import (
 	"context"
 	"fmt"
-	"github.com/hashicorp/vault/sdk/logical"
-	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
+
+	"github.com/hashicorp/vault/sdk/logical"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPathRevoke(t *testing.T) {
@@ -50,8 +57,9 @@ func TestPathRevoke(t *testing.T) {
 
 	err = testRoleCreate(t, b, reqStorage, issueSignRole)
 	assert.NoError(t, err)
-
-	cn := fmt.Sprintf("%s.EJBCAVaultTest.com", generateRandomString(16))
+	random, err := generateRandomString(16)
+	require.NoError(t, err)
+	cn := fmt.Sprintf("%s.EJBCAVaultTest.com", random)
 
 	t.Run("revokeWithSerialNumber", func(t *testing.T) {
 		resp, err := b.HandleRequest(context.Background(), &logical.Request{
@@ -150,7 +158,9 @@ func TestPathRevokeWithPrivateKey(t *testing.T) {
 	})
 	assert.NoError(t, err)
 
-	cn := fmt.Sprintf("%s.EJBCAVaultTest.com", generateRandomString(16))
+	random, err := generateRandomString(16)
+	require.NoError(t, err)
+	cn := fmt.Sprintf("%s.EJBCAVaultTest.com", random)
 
 	maxTTL, _ := time.ParseDuration("1h")
 	notBeforeDuration, _ := time.ParseDuration("15m")
@@ -188,6 +198,10 @@ func TestPathRevokeWithPrivateKey(t *testing.T) {
 
 		if resp.Data == nil {
 			t.Fatal("response data is nil")
+		}
+
+		if logicalResponseIsEjbcaError(resp) {
+			t.Fatal("response is EJBCA error")
 		}
 
 		privateKey := resp.Data["private_key"].(string)
@@ -232,6 +246,10 @@ func TestPathRevokeWithPrivateKey(t *testing.T) {
 
 		if resp.Data == nil {
 			t.Fatal("response data is nil")
+		}
+
+		if logicalResponseIsEjbcaError(resp) {
+			t.Fatal("response is EJBCA error")
 		}
 
 		cert := resp.Data["certificate"].(string)
