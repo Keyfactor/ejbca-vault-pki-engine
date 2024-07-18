@@ -9,6 +9,18 @@
 
 
 
+## Requirements
+
+### To build
+* [Git](https://git-scm.com/)
+* [Golang](https://golang.org/) >= v1.22
+
+### To use
+* [EJBCA](https://www.keyfactor.com/products/ejbca-enterprise/) >= v7.7
+* [HashiCorp Vault](https://www.vaultproject.io/) >= v1.11.0
+
+
+
 ## Overview
 
 The EJBCA PKI Secrets Engine for HashiCorp Vault enables DevOps teams to request and retrieve certificates 
@@ -19,18 +31,6 @@ and uses the [EJBCA Go Client SDK](https://github.com/Keyfactor/ejbca-go-client-
 The EJBCA PKI Secrets Engine is a Vault plugin that replicates the built-in Vault PKI secrets engine, but processes
 requests through EJBCA instead of through Vault. The plugin was designed to be swapped for the built-in Vault PKI secrets engine
 with minimal changes to existing Vault configurations.
-
-
-
-## Requirements
-
-### To build
-* [Git](https://git-scm.com/)
-* [Golang](https://golang.org/) >= v1.22
-
-### To use
-* [EJBCA](https://www.keyfactor.com/products/ejbca-enterprise/) >= v7.7
-* [HashiCorp Vault](https://www.vaultproject.io/) >= v1.11.0
 
 
 
