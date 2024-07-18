@@ -13,7 +13,7 @@ with minimal changes to existing Vault configurations.
 
 ## To build
 * [Git](https://git-scm.com/)
-* [Golang](https://golang.org/) >= v1.19
+* [Golang](https://golang.org/) >= v1.22
 
 ## To use
 * [EJBCA](https://www.keyfactor.com/products/ejbca-enterprise/) >= v7.7
@@ -21,11 +21,9 @@ with minimal changes to existing Vault configurations.
 
 # Badges
 
-<a href="https://github.com/keyfactor/ejbca-cert-manager-issuer/releases/latest"><img src="https://img.shields.io/github/v/release/keyfactor/ejbca-cert-manager-issuer?style=flat-square" alt="Latest Release"></a>
 <a href="https://ejbca.org"><img src="https://img.shields.io/badge/valid_for-ejbca_community-FF9371" alt="Valid for EJBCA Community"></a>
 <a href="https://www.keyfactor.com/products/ejbca-enterprise/"><img src="https://img.shields.io/badge/valid_for-ejbca_enterprise-5F61FF" alt="Valid for EJBCA Enterprise"></a>
-<a href="https://goreportcard.com/report/github.com/keyfactor/ejbca-cert-manager-issuer"><img src="https://goreportcard.com/badge/github.com/keyfactor/ejbca-cert-manager-issuer" alt="Go Report Card"></a>
-<a href="https://img.shields.io/badge/License-Apache%202.0-blue.svg"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License Apache 2.0"></a>
+<a href="https://goreportcard.com/report/github.com/keyfactor/ejbca-vault-pki-engine"><img src="https://goreportcard.com/badge/github.com/keyfactor/ejbca-vault-pki-engine" alt="Go Report Card"></a>
 
 # Getting Started
 

@@ -1,37 +1,13 @@
-<h1 align="center" style="border-bottom: none">
 
 
-EJBCA Vault PKI Secrets Engine
+# EJBCA Vault PKI Secrets Engine
 
 <img src="https://img.shields.io/badge/integration_status-production-3D1973?style=flat-square" alt="Integration Status: production" />
-<a href="https://github.com/keyfactor/ejbca-cert-manager-issuer/releases/latest"><img src="https://img.shields.io/github/v/release/keyfactor/ejbca-cert-manager-issuer?style=flat-square" alt="Latest Release"></a>
 <a href="https://ejbca.org"><img src="https://img.shields.io/badge/valid_for-ejbca_community-FF9371" alt="Valid for EJBCA Community"></a>
 <a href="https://www.keyfactor.com/products/ejbca-enterprise/"><img src="https://img.shields.io/badge/valid_for-ejbca_enterprise-5F61FF" alt="Valid for EJBCA Enterprise"></a>
-<a href="https://goreportcard.com/report/github.com/keyfactor/ejbca-cert-manager-issuer"><img src="https://goreportcard.com/badge/github.com/keyfactor/ejbca-cert-manager-issuer" alt="Go Report Card"></a>
-<a href="https://img.shields.io/badge/License-Apache%202.0-blue.svg"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License Apache 2.0"></a>
+<a href="https://goreportcard.com/report/github.com/keyfactor/ejbca-vault-pki-engine"><img src="https://goreportcard.com/badge/github.com/keyfactor/ejbca-vault-pki-engine" alt="Go Report Card"></a>
 
 
-
-</h1>
-
-<p align="center">
-  <!-- TOC -->
-  <a href="#support">
-    <b>Support</b>
-  </a>
-  ·
-  <a href="#get-started">
-    <b>Get Started</b>
-  </a>
-  ·
-  <a href="#license">
-    <b>License</b>
-  </a>
-  ·
-  <a href="https://github.com/orgs/Keyfactor/repositories?q=ejbca">
-    <b>Related Integrations</b>
-  </a>
-</p>
 
 ## Overview
 
@@ -46,20 +22,11 @@ with minimal changes to existing Vault configurations.
 
 
 
-## Support
-
-In the [Keyfactor Community](https://www.keyfactor.com/community/), we welcome contributions. Keyfactor Community software is open-source and community-supported, meaning that **no SLA** is applicable. Keyfactor will address issues as resources become available.
-
-* To report a problem or suggest a new feature, go to [Issues](../../issues).
-* If you want to contribute bug fixes or proposed enhancements, see the [Contributing Guidelines](CONTRIBUTING.md) and create a [Pull request](../../pulls).
-
-> Commercial support is available for [EJBCA Enterprise](https://www.keyfactor.com/products/ejbca-enterprise/) customers, who may request escalation by opening up a support ticket through their Keyfactor representative.
-
 ## Requirements
 
 ### To build
 * [Git](https://git-scm.com/)
-* [Golang](https://golang.org/) >= v1.19
+* [Golang](https://golang.org/) >= v1.22
 
 ### To use
 * [EJBCA](https://www.keyfactor.com/products/ejbca-enterprise/) >= v7.7
@@ -72,6 +39,17 @@ In the [Keyfactor Community](https://www.keyfactor.com/community/), we welcome c
 To get started with EJBCA PKI Secrets Engine for HashiCorp Vault, see [Getting Started](docs/getting-started.md).
 
 
+
+## Community Support
+
+In the [Keyfactor Community](https://www.keyfactor.com/community/), we welcome contributions. Keyfactor Community software is open-source and community-supported, meaning that **no SLA** is applicable. Keyfactor will address issues as resources become available.
+
+* To report a problem or suggest a new feature, go to [Issues](../../issues).
+* If you want to contribute bug fixes or proposed enhancements, see the [Contributing Guidelines](CONTRIBUTING.md) and create a [Pull request](../../pulls).
+
+## Commercial Support
+
+Commercial support is available for [EJBCA Enterprise](https://www.keyfactor.com/products/ejbca-enterprise/).
 
 ## License
 For license information, see [LICENSE](LICENSE). 

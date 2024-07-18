@@ -14,7 +14,7 @@ The EJBCA PKI Secrets Engine requires the following API endpoints:
 ## Requirements
 ### To build
 * [Git](https://git-scm.com/)
-* [Golang](https://golang.org/) >= v1.19
+* [Golang](https://golang.org/) >= v1.22
 
 ### To use
 * EJBCA [Community](https://www.ejbca.org/) or EJBCA [Enterprise](https://www.keyfactor.com/products/ejbca-enterprise/)
