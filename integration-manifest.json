@@ -1,10 +1,11 @@
 {
-    "$schema": "https://keyfactor.github.io/integration-manifest-schema.json",
+    "$schema": "https://keyfactor.github.io/v2/integration-manifest-schema.json",
     "name": "EJBCA Vault PKI Secrets Engine",
-    "integration_type": "api-client",
+    "integration_type": "ejbca",
     "status": "production",
     "description": "EJBCA PKI Engine and Backend for HashiCorp Vault. Used to issue, sign, and revoke certificates using the EJBCA CA via HashiCorp Vault",
     "support_level": "kf-community",
     "update_catalog": true,
-    "release_dir": ""
+    "release_dir": "",
+    "link_github": true
 }
