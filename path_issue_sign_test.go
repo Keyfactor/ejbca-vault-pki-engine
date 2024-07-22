@@ -1,15 +1,20 @@
 /*
-Copyright 2024 Keyfactor
-Licensed under the Apache License, Version 2.0 (the "License"); you may
-not use this file except in compliance with the License.  You may obtain a
-copy of the License at http://www.apache.org/licenses/LICENSE-2.0.  Unless
-required by applicable law or agreed to in writing, software distributed
-under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES
-OR CONDITIONS OF ANY KIND, either express or implied. See the License for
-thespecific language governing permissions and limitations under the
-License.
+Copyright © 2024 Keyfactor
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 */
-package ejbca_vault_pki_engine
+
+package ejbca
 
 import (
 	"bytes"
@@ -22,11 +27,13 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"github.com/hashicorp/vault/sdk/logical"
-	"github.com/stretchr/testify/assert"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hashicorp/vault/sdk/logical"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPathIssueSign(t *testing.T) {
@@ -104,7 +111,10 @@ func TestPathIssueSign(t *testing.T) {
 
 func testSign(t *testing.T, b logical.Backend, s logical.Storage, path string) error {
 	// Generate CSR
-	csr, err := generateCSR(fmt.Sprintf("CN=%s.EJBCAVaultTest.com", generateRandomString(16)))
+	random, err := generateRandomString(16)
+	require.NoError(t, err)
+	subject := fmt.Sprintf("CN=%s.EJBCAVaultTest.com", random)
+	csr, err := generateCSR(subject)
 	if err != nil {
 		return err
 	}
@@ -126,6 +136,10 @@ func testSign(t *testing.T, b logical.Backend, s logical.Storage, path string) e
 
 	if resp != nil && resp.IsError() {
 		return resp.Error()
+	}
+
+	if logicalResponseIsEjbcaError(resp) {
+		return errors.New("EJBCA returned an error")
 	}
 
 	t.Logf("resp.Data:\n%v", resp.Data)
@@ -152,6 +166,10 @@ func testIssue(t *testing.T, b logical.Backend, s logical.Storage, path string) 
 		return resp.Error()
 	}
 
+	if logicalResponseIsEjbcaError(resp) {
+		return errors.New("EJBCA returned an error")
+	}
+
 	t.Logf("resp.Data:\n%v", resp.Data)
 
 	return testFetchCert(t, b, s, resp.Data["serial_number"].(string))
@@ -175,6 +193,10 @@ func testFetchCert(t *testing.T, b logical.Backend, s logical.Storage, serial st
 
 		if resp != nil && resp.IsError() {
 			return resp.Error()
+		}
+
+		if logicalResponseIsEjbcaError(resp) {
+			return errors.New("EJBCA returned an error")
 		}
 
 		t.Logf("resp.Data:\n%v", resp.Data)
@@ -247,7 +269,11 @@ func parseSubjectDN(subject string, randomizeCn bool) (pkix.Name, error) {
 			name.OrganizationalUnit = []string{value}
 		case "CN":
 			if randomizeCn {
-				name.CommonName = fmt.Sprintf("%s-%s", value, generateRandomString(5))
+				random, err := generateRandomString(5)
+				if err != nil {
+					return name, err
+				}
+				name.CommonName = fmt.Sprintf("%s-%s", value, random)
 			} else {
 				name.CommonName = value
 			}
