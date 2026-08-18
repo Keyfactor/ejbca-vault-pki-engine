@@ -1,3 +1,7 @@
+# v1.5.1
+## Fixes
+* Patched bug that allowed the `allowed_uri_sans` role parameter to be bypassed when issuing/signing certificates with URI SANs.
+
 # v1.5.0
 ## Fixes
 * Patched bug that required the `allow_any_name` or `allowed_domains=[""]` role parameters to issue/sign certificates with no CN.
