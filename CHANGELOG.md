@@ -1,6 +1,7 @@
 # v1.5.0
 ## Fixes
 * Patched bug that required the `allow_any_name` or `allowed_domains=[""]` role parameters to issue/sign certificates with no CN.
+* Security: enforce the role's `allowed_uri_sans` restriction. Previously URI SANs were only checked to see whether the role permitted any URI SANs at all; individual URIs were never matched against the configured patterns, allowing certificates to be issued or signed with arbitrary URI SANs.
 
 ## Chores
 * Upgrade from Go `v1.21` to `v1.22`.
