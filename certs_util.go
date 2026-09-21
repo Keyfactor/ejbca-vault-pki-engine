@@ -1348,6 +1348,53 @@ func (i *issueSignHelper) validateNames(csr *x509.CertificateRequest) error {
 		return fmt.Errorf("domain name %q is not allowed by role. please add this domain to allowed_domains", name)
 	}
 
+	// Domain-style names are validated; now validate any URI SANs against the
+	// role's allowed_uri_sans restrictions.
+	if err := i.validateURISANs(csr); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateURISANs validates all URI Subject Alternative Names from the CSR
+// against the allowed_uri_sans restrictions in the role. This is the single
+// enforcement point for both the issue flow (URIs supplied via the uri_sans
+// API parameter) and the sign flow (URIs embedded in a client-supplied CSR).
+func (i *issueSignHelper) validateURISANs(csr *x509.CertificateRequest) error {
+	if len(csr.URIs) == 0 {
+		return nil
+	}
+
+	logger := i.storageContext.Backend.Logger().Named("issueSignHelper.validateURISANs")
+	logger.Debug("Validating CSR URI SANs")
+
+	// AllowAnyName does not relax URI SAN restrictions; upstream Vault gates
+	// URIs strictly on allowed_uri_sans. If URIs were provided but the role
+	// permits none, reject the request.
+	if len(i.role.AllowedURISANs) == 0 {
+		return fmt.Errorf("URI Subject Alternative Names are not allowed in this role, but were provided")
+	}
+
+	for _, uri := range csr.URIs {
+		valid := false
+		for _, allowed := range i.role.AllowedURISANs {
+			// Ignore empty entries (e.g. a stray trailing comma in the role).
+			if allowed == "" {
+				continue
+			}
+			if glob.Glob(allowed, uri.String()) {
+				valid = true
+				break
+			}
+		}
+
+		if !valid {
+			logger.Debug(fmt.Sprintf("URI %q is not allowed by role", uri.String()))
+			return fmt.Errorf("URI Subject Alternative Name %q is not allowed by this role, please add it to allowed_uri_sans", uri.String())
+		}
+	}
+
 	return nil
 }
 

@@ -22,6 +22,17 @@ with minimal changes to existing Vault configurations.
 
 
 
+## Community Support
+
+In the [Keyfactor Community](https://www.keyfactor.com/community/), we welcome contributions. Keyfactor Community software is open-source and community-supported, meaning that **no SLA** is applicable. Keyfactor will address issues as resources become available.
+
+* To report a problem or suggest a new feature, go to [Issues](../../issues).
+* If you want to contribute bug fixes or proposed enhancements, see the [Contributing Guidelines](CONTRIBUTING.md) and create a [Pull request](../../pulls).
+
+## Commercial Support
+
+Commercial support is available for [EJBCA Enterprise](https://www.keyfactor.com/products/ejbca-enterprise/).
+
 ## Requirements
 
 ### To build
@@ -40,16 +51,7 @@ To get started with EJBCA PKI Secrets Engine for HashiCorp Vault, see [Getting S
 
 
 
-## Community Support
 
-In the [Keyfactor Community](https://www.keyfactor.com/community/), we welcome contributions. Keyfactor Community software is open-source and community-supported, meaning that **no SLA** is applicable. Keyfactor will address issues as resources become available.
-
-* To report a problem or suggest a new feature, go to [Issues](../../issues).
-* If you want to contribute bug fixes or proposed enhancements, see the [Contributing Guidelines](CONTRIBUTING.md) and create a [Pull request](../../pulls).
-
-## Commercial Support
-
-Commercial support is available for [EJBCA Enterprise](https://www.keyfactor.com/products/ejbca-enterprise/).
 
 ## License
 For license information, see [LICENSE](LICENSE). 
