@@ -288,8 +288,18 @@ func (b *caResponseBuilder) Config(sc *storageContext, path string) *caResponseB
 		b.response.Data[logical.HTTPStatusCode] = http.StatusNoContent
 	}
 
-	b.sc.Backend.Logger().Trace("CA Path detected, fetching default CA [setting caName to defaultCaName]", "defaultCaName", defaultCaName)
-	b.caName = defaultCaName
+	// Resolve the default CA from the per-backend stored config rather than a
+	// mutable package global, so concurrent mounts don't clobber one another.
+	// Fall back to the built-in default when unconfigured or on error.
+	caName := defaultCaName
+	if config, err := b.sc.Config().getConfig(); err != nil {
+		b.sc.Backend.Logger().Warn("Could not read config to resolve default CA; using built-in default", "defaultCaName", defaultCaName, "error", err)
+	} else if config != nil && config.DefaultCAName != "" {
+		caName = config.DefaultCAName
+	}
+
+	b.sc.Backend.Logger().Trace("CA Path detected, setting caName to configured default CA", "caName", caName)
+	b.caName = caName
 
 	return b
 }

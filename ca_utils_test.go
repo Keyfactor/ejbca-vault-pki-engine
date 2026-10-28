@@ -17,6 +17,7 @@ limitations under the License.
 package ejbca
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -24,9 +25,28 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/vault/sdk/logical"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// newTestStorageContext builds a storageContext backed by in-memory storage
+// with a null logger, for unit tests that don't require a live EJBCA instance.
+func newTestStorageContext(t *testing.T) *storageContext {
+	t.Helper()
+
+	config := logical.TestBackendConfig()
+	config.StorageView = new(logical.InmemStorage)
+	config.Logger = hclog.NewNullLogger()
+	config.System = logical.TestSystemView()
+
+	b, err := Factory(context.Background(), config)
+	require.NoError(t, err)
+
+	be := b.(*ejbcaBackend)
+	return be.makeStorageContext(context.Background(), config.StorageView)
+}
 
 // makeTestCert generates a minimal self-signed certificate for use in tests.
 func makeTestCert(t *testing.T, cn string) *x509.Certificate {
@@ -76,5 +96,35 @@ func TestBuildCaEntry(t *testing.T) {
 		assert.Contains(t, entry.CAChain[0], "BEGIN CERTIFICATE")
 		// The first certificate is the CA certificate; the remainder is the chain.
 		assert.NotEqual(t, entry.CaCertificate, entry.CAChain[0])
+	})
+}
+
+func TestCaResponseBuilderResolvesDefaultCA(t *testing.T) {
+	t.Run("uses the configured default_ca", func(t *testing.T) {
+		sc := newTestStorageContext(t)
+		require.NoError(t, sc.Config().putConfig(&ejbcaConfig{
+			Hostname:      "ejbca.example.com",
+			DefaultCAName: "MyConfiguredCA",
+		}))
+
+		b := (&caResponseBuilder{}).Config(sc, "ca")
+		assert.Equal(t, "MyConfiguredCA", b.caName)
+	})
+
+	t.Run("falls back to the built-in default when unconfigured", func(t *testing.T) {
+		sc := newTestStorageContext(t)
+
+		b := (&caResponseBuilder{}).Config(sc, "ca")
+		assert.Equal(t, defaultCaName, b.caName)
+	})
+
+	t.Run("falls back to the built-in default when default_ca is empty", func(t *testing.T) {
+		sc := newTestStorageContext(t)
+		require.NoError(t, sc.Config().putConfig(&ejbcaConfig{
+			Hostname: "ejbca.example.com",
+		}))
+
+		b := (&caResponseBuilder{}).Config(sc, "ca")
+		assert.Equal(t, defaultCaName, b.caName)
 	})
 }

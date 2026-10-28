@@ -29,9 +29,11 @@ const (
 	configStoragePath = "config"
 )
 
-var (
-	defaultCaName = "ManagementCA"
-)
+// defaultCaName is the fallback CA name used as the schema default for the
+// ca/default_ca fields and when no default_ca has been configured. The
+// configured value is stored per-backend in config.DefaultCAName and resolved
+// per-request; this constant must not be mutated at runtime.
+const defaultCaName = "ManagementCA"
 
 type ejbcaConfig struct {
 	Hostname                      string   `json:"hostname"`
@@ -366,9 +368,6 @@ func (b *ejbcaBackend) pathConfigWrite(ctx context.Context, req *logical.Request
 	if defaultCa, ok := data.GetOk("default_ca"); ok {
 		logger.Trace("Default CA present", "default_ca", defaultCa.(string))
 		config.DefaultCAName = defaultCa.(string)
-		// We can safely set the global defaultCaName since only one instance of Config ever exists in the backend
-		logger.Trace("Globally setting default CA name", "default_ca", defaultCa.(string))
-		defaultCaName = defaultCa.(string)
 	} else {
 		logger.Warn("default_ca not found in request")
 	}

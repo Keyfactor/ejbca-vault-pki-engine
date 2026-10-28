@@ -3,6 +3,7 @@
 * Patched bug that allowed the `allowed_uri_sans` role parameter to be bypassed when issuing/signing certificates with URI SANs.
 * Patched bug that allowed the `allowed_other_sans` role parameter to be bypassed when issuing/signing certificates with other (otherName) SANs. Requested other SANs are now matched against the role's `allowed_other_sans` patterns on both the issue and sign paths, and malformed `allowed_other_sans` role config is rejected at role-create time.
 * Fixed a panic (index out of range) when fetching a CA bundle for a CA name that does not exist in EJBCA, or when EJBCA returns an empty certificate chain. These cases now return a clear error.
+* Fixed a cross-mount interaction and data race caused by a package-global default CA name being mutated at runtime. The default CA is now resolved per-request from the mount's stored configuration.
 
 # v1.5.0
 ## Fixes
