@@ -1069,7 +1069,12 @@ func (b *ejbcaBackend) pathRoleCreate(ctx context.Context, req *logical.Request,
 	case len(allowedOtherSANs) == 0:
 	case len(allowedOtherSANs) == 1 && allowedOtherSANs[0] == "*":
 	default:
-		// TODO parse and validate the SANs
+		// Validate that each allowed other SAN is well-formed
+		// ("<oid>;<type>:<value>", UTF-8 only) so malformed role config is
+		// rejected at role-create time rather than at issuance.
+		if _, err := parseOtherSANs(allowedOtherSANs); err != nil {
+			return logical.ErrorResponse(fmt.Sprintf("invalid allowed_other_sans: %s", err)), nil
+		}
 	}
 	entry.AllowedOtherSANs = allowedOtherSANs
 

@@ -864,26 +864,36 @@ func (i *issueSignHelper) getURINames() ([]*url.URL, error) {
 }
 
 func (i *issueSignHelper) getOtherSANs() (map[string][]string, error) {
+	if sans := i.data.Get("other_sans").([]string); len(sans) > 0 {
+		return parseOtherSANs(sans)
+	}
+
+	return map[string][]string{}, nil
+}
+
+// parseOtherSANs parses a list of other SANs in the "<oid>;<type>:<value>" form
+// (the same syntax used by both the other_sans request parameter and the role's
+// allowed_other_sans) into a map of OID to values. Only UTF-8 types are
+// supported.
+func parseOtherSANs(sans []string) (map[string][]string, error) {
 	result := map[string][]string{}
 
-	if sans := i.data.Get("other_sans").([]string); len(sans) > 0 {
-		for _, other := range sans {
-			splitOther := strings.SplitN(other, ";", 2)
-			if len(splitOther) != 2 {
-				return nil, fmt.Errorf("expected a semicolon in other SAN %q", other)
-			}
-			splitType := strings.SplitN(splitOther[1], ":", 2)
-			if len(splitType) != 2 {
-				return nil, fmt.Errorf("expected a colon in other SAN %q", other)
-			}
-			switch {
-			case strings.EqualFold(splitType[0], "utf8"):
-			case strings.EqualFold(splitType[0], "utf-8"):
-			default:
-				return nil, fmt.Errorf("only utf8 other SANs are supported; found non-supported type in other SAN %q", other)
-			}
-			result[splitOther[0]] = append(result[splitOther[0]], splitType[1])
+	for _, other := range sans {
+		splitOther := strings.SplitN(other, ";", 2)
+		if len(splitOther) != 2 {
+			return nil, fmt.Errorf("expected a semicolon in other SAN %q", other)
 		}
+		splitType := strings.SplitN(splitOther[1], ":", 2)
+		if len(splitType) != 2 {
+			return nil, fmt.Errorf("expected a colon in other SAN %q", other)
+		}
+		switch {
+		case strings.EqualFold(splitType[0], "utf8"):
+		case strings.EqualFold(splitType[0], "utf-8"):
+		default:
+			return nil, fmt.Errorf("only utf8 other SANs are supported; found non-supported type in other SAN %q", other)
+		}
+		result[splitOther[0]] = append(result[splitOther[0]], splitType[1])
 	}
 
 	return result, nil
@@ -1354,6 +1364,12 @@ func (i *issueSignHelper) validateNames(csr *x509.CertificateRequest) error {
 		return err
 	}
 
+	// Finally validate any "other" (otherName) SANs against the role's
+	// allowed_other_sans restrictions.
+	if err := i.validateOtherSANs(csr); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -1392,6 +1408,63 @@ func (i *issueSignHelper) validateURISANs(csr *x509.CertificateRequest) error {
 		if !valid {
 			logger.Debug(fmt.Sprintf("URI %q is not allowed by role", uri.String()))
 			return fmt.Errorf("URI Subject Alternative Name %q is not allowed by this role, please add it to allowed_uri_sans", uri.String())
+		}
+	}
+
+	return nil
+}
+
+// validateOtherSANs validates all "other" (otherName) Subject Alternative Names
+// from the CSR against the allowed_other_sans restrictions in the role. Like
+// validateURISANs, this is the single enforcement point for both the issue flow
+// (other SANs supplied via the other_sans API parameter) and the sign flow
+// (other SANs embedded in a client-supplied CSR): in both cases the generated or
+// submitted CSR carries the otherName entries in its SAN extension.
+func (i *issueSignHelper) validateOtherSANs(csr *x509.CertificateRequest) error {
+	// A role value of exactly ["*"] permits any other SAN. This mirrors upstream
+	// Vault PKI and matches what the sign-verbatim path sets.
+	if len(i.role.AllowedOtherSANs) == 1 && i.role.AllowedOtherSANs[0] == "*" {
+		return nil
+	}
+
+	requested, err := certutil.GetOtherSANsFromX509Extensions(csr.Extensions)
+	if err != nil {
+		return fmt.Errorf("could not parse other SANs from the certificate request: %w", err)
+	}
+	if len(requested) == 0 {
+		return nil
+	}
+
+	logger := i.storageContext.Backend.Logger().Named("issueSignHelper.validateOtherSANs")
+	logger.Debug("Validating CSR other SANs")
+
+	// Other SANs were provided but the role permits none.
+	if len(i.role.AllowedOtherSANs) == 0 {
+		return fmt.Errorf("other Subject Alternative Names are not allowed in this role, but were provided")
+	}
+
+	allowed, err := parseOtherSANs(i.role.AllowedOtherSANs)
+	if err != nil {
+		return fmt.Errorf("error parsing role's allowed_other_sans: %w", err)
+	}
+
+	for _, name := range requested {
+		allowedValues, ok := allowed[name.Oid]
+		if !ok {
+			return fmt.Errorf("other SAN with OID %q is not allowed by this role, please add it to allowed_other_sans", name.Oid)
+		}
+
+		valid := false
+		for _, allowedValue := range allowedValues {
+			if glob.Glob(allowedValue, name.Value) {
+				valid = true
+				break
+			}
+		}
+
+		if !valid {
+			logger.Debug(fmt.Sprintf("other SAN %q is not allowed by role", name.String()))
+			return fmt.Errorf("other SAN %q is not allowed by this role, please add it to allowed_other_sans", name.String())
 		}
 	}
 
