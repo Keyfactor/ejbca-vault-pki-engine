@@ -125,6 +125,13 @@ func (c *caStorageContext) fetchCaBundle(caName string) (*certutil.CAInfoBundle,
 			}
 		}
 
+		// If no CA matched the requested name, caSubjectDN is empty and the
+		// chain download would yield nothing. Fail cleanly here rather than
+		// downloading and then panicking on an empty chain below.
+		if caSubjectDN == "" {
+			return nil, errutil.UserError{Err: fmt.Sprintf("no certificate authority named %q was found in EJBCA", caName)}
+		}
+
 		// Then, download the certificate chain
 		logger.Trace(fmt.Sprintf("Fetching CA chain for CA called %q with DN %q", caName, caSubjectDN))
 		chain, err := c.downloadCaChain(c.storageContext.Context, client, caSubjectDN)
@@ -132,22 +139,10 @@ func (c *caStorageContext) fetchCaBundle(caName string) (*certutil.CAInfoBundle,
 			return nil, err
 		}
 
-		// Compile the chain into a list of PEM-encoded certificates
-		var chainList []string
-		for _, cert := range chain {
-			block := pem.Block{
-				Type:  "CERTIFICATE",
-				Bytes: cert.Raw,
-			}
-			chainList = append(chainList, strings.TrimSpace(string(pem.EncodeToMemory(&block))))
-		}
-
-		// Store the CA certificate and chain in Vault
-
-		parsedStorageEntry = caEntry{
-			//SerialNumber:  certutil.GetHexFormatted(chain[0].SerialNumber.Bytes(), ":"),
-			CaCertificate: chainList[0],
-			CAChain:       chainList[1:],
+		// Compile the chain into a CA entry, guarding against an empty chain
+		parsedStorageEntry, err = buildCaEntry(chain)
+		if err != nil {
+			return nil, err
 		}
 
 		logger.Trace("Storing CA entry in storage")
@@ -177,6 +172,31 @@ func (c *caStorageContext) fetchCaBundle(caName string) (*certutil.CAInfoBundle,
 	}
 
 	return caInfo, nil
+}
+
+// buildCaEntry PEM-encodes a downloaded CA certificate chain into a caEntry,
+// using the first certificate as the CA certificate and the remainder as the
+// chain. It returns a UserError (rather than panicking on an out-of-range
+// index) when the chain is empty, which happens when EJBCA returns no
+// certificates for the requested CA.
+func buildCaEntry(chain []*x509.Certificate) (caEntry, error) {
+	var chainList []string
+	for _, cert := range chain {
+		block := pem.Block{
+			Type:  "CERTIFICATE",
+			Bytes: cert.Raw,
+		}
+		chainList = append(chainList, strings.TrimSpace(string(pem.EncodeToMemory(&block))))
+	}
+
+	if len(chainList) == 0 {
+		return caEntry{}, errutil.UserError{Err: "no CA certificates were returned for the requested certificate authority"}
+	}
+
+	return caEntry{
+		CaCertificate: chainList[0],
+		CAChain:       chainList[1:],
+	}, nil
 }
 
 func (b *caResponseBuilder) getPemEncoder() func(*certutil.CAInfoBundle) []string {
