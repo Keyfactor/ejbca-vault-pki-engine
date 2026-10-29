@@ -172,7 +172,7 @@ func pathConfig(b *ejbcaBackend) []*framework.Path {
 						Sensitive: false,
 					},
 				},
-				"default_end_endity_profile": {
+				"default_end_entity_name": {
 					Type: framework.TypeString,
 					Description: `The name of the End Entity that will be created or used in EJBCA for certificate issuance. The value can be one of the following:
    * cn: Uses the Common Name from the CSR's Distinguished Name.
@@ -183,7 +183,7 @@ func pathConfig(b *ejbcaBackend) []*framework.Path {
 					Required: false,
 					Default:  "",
 					DisplayAttrs: &framework.DisplayAttributes{
-						Name:      "Default End Entity Profile",
+						Name:      "Default End Entity Name",
 						Sensitive: false,
 					},
 				},
@@ -239,6 +239,7 @@ func (b *ejbcaBackend) pathConfigRead(ctx context.Context, req *logical.Request,
 		"hostname":                    config.Hostname,
 		"default_ca":                  config.DefaultCAName,
 		"default_end_entity_profile":  config.DefaultEndEntityProfileName,
+		"default_end_entity_name":     config.DefaultEndEntityName,
 		"default_certificate_profile": config.DefaultCertificateProfileName,
 	}
 
