@@ -231,6 +231,34 @@ func TestValidateNamesEnforcesURISANs(t *testing.T) {
 	})
 }
 
+func TestResolveRevocationReason(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{name: "empty defaults to cessation of operation", input: "", want: defaultRevocationReason},
+		{name: "whitespace defaults to cessation of operation", input: "   ", want: defaultRevocationReason},
+		{name: "valid reason is accepted", input: "KEY_COMPROMISE", want: "KEY_COMPROMISE"},
+		{name: "lowercase reason is normalized to uppercase", input: "superseded", want: "SUPERSEDED"},
+		{name: "surrounding whitespace is trimmed", input: "  AA_COMPROMISE  ", want: "AA_COMPROMISE"},
+		{name: "unknown reason is rejected", input: "NOT_A_REASON", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolveRevocationReason(tt.input)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 // upnOID is the Microsoft User Principal Name otherName OID, a common other-SAN
 // type, used here purely as a representative OID for tests.
 const upnOID = "1.3.6.1.4.1.311.20.2.3"

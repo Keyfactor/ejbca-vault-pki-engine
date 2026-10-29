@@ -58,8 +58,44 @@ type revokeBuilder struct {
 	issuerDn                   string
 	normalizedHexSerialNumber  string
 	storageContextSerialNumber string
+	reason                     string
 
 	errorResponse *logical.Response
+}
+
+// defaultRevocationReason is the RFC 5280 reason code used when a revocation
+// request does not specify one.
+const defaultRevocationReason = "CESSATION_OF_OPERATION"
+
+// validRevocationReasons are the RFC 5280 reason codes accepted by EJBCA's
+// revoke API.
+var validRevocationReasons = map[string]struct{}{
+	"NOT_REVOKED":            {},
+	"UNSPECIFIED":            {},
+	"KEY_COMPROMISE":         {},
+	"CA_COMPROMISE":          {},
+	"AFFILIATION_CHANGED":    {},
+	"SUPERSEDED":             {},
+	"CESSATION_OF_OPERATION": {},
+	"CERTIFICATE_HOLD":       {},
+	"REMOVE_FROM_CRL":        {},
+	"PRIVILEGES_WITHDRAWN":   {},
+	"AA_COMPROMISE":          {},
+}
+
+// resolveRevocationReason normalizes and validates a revocation reason code,
+// falling back to the default when none is provided.
+func resolveRevocationReason(reason string) (string, error) {
+	if strings.TrimSpace(reason) == "" {
+		return defaultRevocationReason, nil
+	}
+
+	normalized := strings.ToUpper(strings.TrimSpace(reason))
+	if _, ok := validRevocationReasons[normalized]; !ok {
+		return "", fmt.Errorf("invalid revocation reason %q", reason)
+	}
+
+	return normalized, nil
 }
 
 func (r *revokeBuilder) Config(sc *storageContext, path string, data *framework.FieldData) *revokeBuilder {
@@ -85,6 +121,14 @@ func (r *revokeBuilder) Config(sc *storageContext, path string, data *framework.
 		r.errorResponse = logical.ErrorResponse("The serial number or certificate to revoke must be provided.")
 		return r
 	}
+
+	reason, reasonErr := resolveRevocationReason(data.Get("revocation_reason").(string))
+	if reasonErr != nil {
+		logger.Error(reasonErr.Error())
+		r.errorResponse = logical.ErrorResponse(reasonErr.Error())
+		return r
+	}
+	r.reason = reason
 
 	if !keyPresent && privateKeyRequired {
 		logger.Debug("Private key is required with the /revoke-with-key path")
@@ -220,8 +264,13 @@ func (r *revokeBuilder) RevokeCertificate() (*logical.Response, error) {
 		return logical.ErrorResponse(message), nil
 	}
 
-	logger.Debug(fmt.Sprintf("Calling EJBCA to revoke certificate with serial number %s [%s]", r.storageContextSerialNumber, r.normalizedHexSerialNumber))
-	execute, b, err := client.V1CertificateApi.RevokeCertificate(r.storageContext.Context, r.issuerDn, r.normalizedHexSerialNumber).Reason("CESSATION_OF_OPERATION").Execute()
+	reason := r.reason
+	if reason == "" {
+		reason = defaultRevocationReason
+	}
+
+	logger.Debug(fmt.Sprintf("Calling EJBCA to revoke certificate with serial number %s [%s] with reason %s", r.storageContextSerialNumber, r.normalizedHexSerialNumber, reason))
+	execute, b, err := client.V1CertificateApi.RevokeCertificate(r.storageContext.Context, r.issuerDn, r.normalizedHexSerialNumber).Reason(reason).Execute()
 	if err != nil {
 		var ejbcaError ejbcaAPIError
 		if errors.As(client.EjbcaAPIError(r.storageContext.Backend, fmt.Sprintf("failed to revoke certificate with serial number %s [%s]", r.storageContextSerialNumber, r.normalizedHexSerialNumber), err), &ejbcaError) {

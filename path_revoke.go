@@ -45,6 +45,15 @@ hyphen-separated octal`,
 					Description: `Certificate to revoke in PEM format; must be
 signed by an issuer in this mount.`,
 				},
+				"revocation_reason": {
+					Type: framework.TypeString,
+					Description: `Optional RFC 5280 revocation reason code. One of
+NOT_REVOKED, UNSPECIFIED, KEY_COMPROMISE, CA_COMPROMISE,
+AFFILIATION_CHANGED, SUPERSEDED, CESSATION_OF_OPERATION, CERTIFICATE_HOLD,
+REMOVE_FROM_CRL, PRIVILEGES_WITHDRAWN, AA_COMPROMISE. Defaults to
+CESSATION_OF_OPERATION.`,
+					Default: defaultRevocationReason,
+				},
 			},
 
 			Operations: map[logical.Operation]framework.OperationHandler{
@@ -107,6 +116,15 @@ func pathRevokeWithKey(b *ejbcaBackend) []*framework.Path {
 					Type: framework.TypeString,
 					Description: `Key to use to verify revocation permission; must
                     be in PEM format.`,
+				},
+				"revocation_reason": {
+					Type: framework.TypeString,
+					Description: `Optional RFC 5280 revocation reason code. One of
+                    NOT_REVOKED, UNSPECIFIED, KEY_COMPROMISE, CA_COMPROMISE,
+                    AFFILIATION_CHANGED, SUPERSEDED, CESSATION_OF_OPERATION,
+                    CERTIFICATE_HOLD, REMOVE_FROM_CRL, PRIVILEGES_WITHDRAWN,
+                    AA_COMPROMISE. Defaults to CESSATION_OF_OPERATION.`,
+					Default: defaultRevocationReason,
 				},
 			},
 
