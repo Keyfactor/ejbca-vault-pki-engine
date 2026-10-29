@@ -181,3 +181,16 @@ func testRoleDelete(_ *testing.T, b logical.Backend, s logical.Storage) error {
 	}
 	return nil
 }
+
+// TestRoleToResponseDataIncludesEndEntityName is a unit test (no live EJBCA
+// required) ensuring the role read response surfaces the configured
+// end_entity_name, which was previously omitted.
+func TestRoleToResponseDataIncludesEndEntityName(t *testing.T) {
+	r := &roleEntry{EndEntityName: "cn"}
+
+	data := r.ToResponseData()
+
+	got, ok := data["end_entity_name"]
+	assert.True(t, ok, "end_entity_name should be present in the role read response")
+	assert.Equal(t, "cn", got)
+}

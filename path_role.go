@@ -1193,6 +1193,7 @@ func (r *roleEntry) ToResponseData() map[string]interface{} {
 		"issuer_ref":                         r.Issuer,
 		"end_entity_profile_name":            r.EndEntityProfileName,
 		"certificate_profile_name":           r.CertificateProfileName,
+		"end_entity_name":                    r.EndEntityName,
 		"account_binding_id":                 r.AccountBindingID,
 	}
 	if r.MaxPathLength != nil {
