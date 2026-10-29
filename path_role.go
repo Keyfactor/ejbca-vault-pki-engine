@@ -479,8 +479,8 @@ func pathRole(b *ejbcaBackend) []*framework.Path {
 							Description: "OK",
 							Fields: map[string]*framework.FieldSchema{
 								"keys": {
-									Type:        framework.TypeMap,
-									Description: `List of keys`,
+									Type:        framework.TypeStringSlice,
+									Description: `List of role names`,
 									Required:    false,
 								},
 							},
@@ -501,11 +501,6 @@ func pathRole(b *ejbcaBackend) []*framework.Path {
 			},
 
 			Fields: map[string]*framework.FieldSchema{
-				"backend": {
-					Type:        framework.TypeString,
-					Description: "Backend Type",
-				},
-
 				"name": {
 					Type:        framework.TypeString,
 					Description: "Name of the role",
