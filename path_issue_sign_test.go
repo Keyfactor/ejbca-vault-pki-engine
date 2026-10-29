@@ -51,10 +51,10 @@ func TestPathIssueSign(t *testing.T) {
 	assert.NoError(t, err)
 
 	maxTTL, _ := time.ParseDuration("1h")
-	notBeforeDuration, _ := time.ParseDuration("15m")
+	ttlDuration, _ := time.ParseDuration("15m")
 	var issueSignRole = map[string]interface{}{
 		"max_ttl":            int(maxTTL.Seconds()),
-		"ttl":                int(notBeforeDuration.Seconds()),
+		"ttl":                int(ttlDuration.Seconds()),
 		"key_type":           "rsa",
 		"key_bits":           2048,
 		"signature_bits":     256,
@@ -206,7 +206,10 @@ func testFetchCert(t *testing.T, b logical.Backend, s logical.Storage, serial st
 }
 
 func generateCSR(subject string) (string, error) {
-	keyBytes, _ := rsa.GenerateKey(rand.Reader, 2048)
+	keyBytes, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return "", err
+	}
 
 	subj, err := parseSubjectDN(subject, false)
 	if err != nil {

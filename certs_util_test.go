@@ -18,11 +18,15 @@ package ejbca
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"net"
 	"net/url"
 	"testing"
 
 	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/vault/sdk/helper/certutil"
 	"github.com/hashicorp/vault/sdk/logical"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -221,6 +225,218 @@ func TestValidateNamesEnforcesURISANs(t *testing.T) {
 			DNSNames: []string{"anything.example.org"},
 			URIs:     mustParseURIs(t, "spiffe://example.com/workload"),
 		}
+
+		err := helper.validateNames(csr)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not allowed in this role")
+	})
+}
+
+func TestGetEndEntityName(t *testing.T) {
+	t.Run("ip selector with no IP SAN does not return the literal \"ip\"", func(t *testing.T) {
+		helper := newValidationHelper(t, &roleEntry{EndEntityName: "ip"})
+		csr := &x509.CertificateRequest{}
+		assert.Equal(t, "", helper.getEndEntityName(csr))
+	})
+
+	t.Run("ip selector with an IP SAN returns the IP address", func(t *testing.T) {
+		helper := newValidationHelper(t, &roleEntry{EndEntityName: "ip"})
+		csr := &x509.CertificateRequest{IPAddresses: []net.IP{net.ParseIP("192.0.2.10")}}
+		assert.Equal(t, "192.0.2.10", helper.getEndEntityName(csr))
+	})
+
+	t.Run("cn selector returns the common name", func(t *testing.T) {
+		helper := newValidationHelper(t, &roleEntry{EndEntityName: "cn"})
+		csr := &x509.CertificateRequest{Subject: pkix.Name{CommonName: "device.example.com"}}
+		assert.Equal(t, "device.example.com", helper.getEndEntityName(csr))
+	})
+
+	t.Run("a literal end entity name is used verbatim", func(t *testing.T) {
+		helper := newValidationHelper(t, &roleEntry{EndEntityName: "my-literal-ee-name"})
+		csr := &x509.CertificateRequest{}
+		assert.Equal(t, "my-literal-ee-name", helper.getEndEntityName(csr))
+	})
+
+	t.Run("cn selector with no common name falls through to empty", func(t *testing.T) {
+		helper := newValidationHelper(t, &roleEntry{EndEntityName: "cn"})
+		csr := &x509.CertificateRequest{}
+		assert.Equal(t, "", helper.getEndEntityName(csr))
+	})
+}
+
+func TestResolveRevocationReason(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{name: "empty defaults to cessation of operation", input: "", want: defaultRevocationReason},
+		{name: "whitespace defaults to cessation of operation", input: "   ", want: defaultRevocationReason},
+		{name: "valid reason is accepted", input: "KEY_COMPROMISE", want: "KEY_COMPROMISE"},
+		{name: "lowercase reason is normalized to uppercase", input: "superseded", want: "SUPERSEDED"},
+		{name: "surrounding whitespace is trimmed", input: "  AA_COMPROMISE  ", want: "AA_COMPROMISE"},
+		{name: "unknown reason is rejected", input: "NOT_A_REASON", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolveRevocationReason(tt.input)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// upnOID is the Microsoft User Principal Name otherName OID, a common other-SAN
+// type, used here purely as a representative OID for tests.
+const upnOID = "1.3.6.1.4.1.311.20.2.3"
+
+// mustCSRWithOtherSANs builds a real CSR carrying the given other (otherName)
+// SANs in its SAN extension, the same way the issue flow does. The map is keyed
+// by OID with UTF-8 string values. It fails the test on any error.
+func mustCSRWithOtherSANs(t *testing.T, otherSANs map[string][]string) *x509.CertificateRequest {
+	t.Helper()
+
+	bundle := &certutil.CreationBundle{
+		Params: &certutil.CreationParameters{
+			Subject:   pkix.Name{CommonName: "test.example.com"},
+			OtherSANs: otherSANs,
+			KeyType:   "rsa",
+			KeyBits:   2048,
+		},
+	}
+
+	parsed, err := certutil.CreateCSRWithRandomSource(bundle, false, rand.Reader)
+	require.NoError(t, err, "failed to build test CSR with other SANs")
+	return parsed.CSR
+}
+
+func TestValidateOtherSANs(t *testing.T) {
+	tests := []struct {
+		name             string
+		allowedOtherSANs []string
+		requestedOther   map[string][]string
+		wantErr          bool
+		wantErrContains  string
+	}{
+		{
+			name:             "no other SANs requested is always allowed",
+			allowedOtherSANs: nil,
+			requestedOther:   nil,
+			wantErr:          false,
+		},
+		{
+			// The core of the vulnerability: role permits no other SANs, but a
+			// request carrying one must be rejected.
+			name:             "other SAN requested but role allows none is rejected",
+			allowedOtherSANs: nil,
+			requestedOther:   map[string][]string{upnOID: {"user@example.com"}},
+			wantErr:          true,
+			wantErrContains:  "not allowed in this role",
+		},
+		{
+			name:             "wildcard allows any other SAN",
+			allowedOtherSANs: []string{"*"},
+			requestedOther:   map[string][]string{upnOID: {"anything@evil.example"}},
+			wantErr:          false,
+		},
+		{
+			name:             "other SAN matching exact allowed value is allowed",
+			allowedOtherSANs: []string{upnOID + ";UTF-8:user@example.com"},
+			requestedOther:   map[string][]string{upnOID: {"user@example.com"}},
+			wantErr:          false,
+		},
+		{
+			name:             "other SAN matching glob value is allowed",
+			allowedOtherSANs: []string{upnOID + ";UTF-8:*@example.com"},
+			requestedOther:   map[string][]string{upnOID: {"someone@example.com"}},
+			wantErr:          false,
+		},
+		{
+			name:             "other SAN value outside allowed glob is rejected",
+			allowedOtherSANs: []string{upnOID + ";UTF-8:*@example.com"},
+			requestedOther:   map[string][]string{upnOID: {"attacker@evil.com"}},
+			wantErr:          true,
+			wantErrContains:  "not allowed by this role",
+		},
+		{
+			name:             "other SAN with a disallowed OID is rejected",
+			allowedOtherSANs: []string{upnOID + ";UTF-8:*"},
+			requestedOther:   map[string][]string{"2.5.4.3": {"whatever"}},
+			wantErr:          true,
+			wantErrContains:  "OID",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			helper := newValidationHelper(t, &roleEntry{
+				AllowedOtherSANs: tt.allowedOtherSANs,
+			})
+
+			var csr *x509.CertificateRequest
+			if len(tt.requestedOther) == 0 {
+				csr = &x509.CertificateRequest{}
+			} else {
+				csr = mustCSRWithOtherSANs(t, tt.requestedOther)
+			}
+
+			err := helper.validateOtherSANs(csr)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.wantErrContains != "" {
+					assert.Contains(t, err.Error(), tt.wantErrContains)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestValidateNamesEnforcesOtherSANs ensures the shared validateNames path (used
+// by both issue and sign) enforces allowed_other_sans, not just the domain and
+// URI restrictions. AllowAnyName is enabled so domain validation is a no-op and
+// the other-SAN logic is exercised in isolation.
+func TestValidateNamesEnforcesOtherSANs(t *testing.T) {
+	t.Run("disallowed other SAN is rejected even when any domain name is allowed", func(t *testing.T) {
+		helper := newValidationHelper(t, &roleEntry{
+			AllowAnyName:     true,
+			AllowedOtherSANs: []string{upnOID + ";UTF-8:*@example.com"},
+		})
+
+		csr := mustCSRWithOtherSANs(t, map[string][]string{upnOID: {"attacker@evil.com"}})
+
+		err := helper.validateNames(csr)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not allowed by this role")
+	})
+
+	t.Run("allowed other SAN passes validateNames", func(t *testing.T) {
+		helper := newValidationHelper(t, &roleEntry{
+			AllowAnyName:     true,
+			AllowedOtherSANs: []string{upnOID + ";UTF-8:*@example.com"},
+		})
+
+		csr := mustCSRWithOtherSANs(t, map[string][]string{upnOID: {"someone@example.com"}})
+
+		err := helper.validateNames(csr)
+		assert.NoError(t, err)
+	})
+
+	t.Run("other SAN in submitted CSR is rejected when role allows none", func(t *testing.T) {
+		helper := newValidationHelper(t, &roleEntry{
+			AllowAnyName:     true,
+			AllowedOtherSANs: nil,
+		})
+
+		csr := mustCSRWithOtherSANs(t, map[string][]string{upnOID: {"user@example.com"}})
 
 		err := helper.validateNames(csr)
 		require.Error(t, err)

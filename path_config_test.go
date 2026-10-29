@@ -260,3 +260,51 @@ func testConfigRead(_ *testing.T, b logical.Backend, s logical.Storage, expected
 
 	return nil
 }
+
+// TestConfigSchemaUsesDefaultEndEntityName is a unit test (no live EJBCA
+// required) ensuring the config schema declares default_end_entity_name and no
+// longer declares the previously-misspelled default_end_endity_profile that
+// made the field unconfigurable.
+func TestConfigSchemaUsesDefaultEndEntityName(t *testing.T) {
+	be := newTestStorageContext(t).Backend
+
+	var hasCorrect, hasTypo bool
+	for _, p := range pathConfig(be) {
+		if _, ok := p.Fields["default_end_entity_name"]; ok {
+			hasCorrect = true
+		}
+		if _, ok := p.Fields["default_end_endity_profile"]; ok {
+			hasTypo = true
+		}
+	}
+
+	assert.True(t, hasCorrect, "schema should declare default_end_entity_name")
+	assert.False(t, hasTypo, "schema should not declare the misspelled default_end_endity_profile")
+}
+
+// TestConfigReadIncludesDefaultEndEntityName ensures the config read response
+// surfaces default_end_entity_name.
+func TestConfigReadIncludesDefaultEndEntityName(t *testing.T) {
+	sc := newTestStorageContext(t)
+
+	if err := sc.Config().putConfig(&ejbcaConfig{
+		Hostname:             "ejbca.example.com",
+		DefaultEndEntityName: "cn",
+	}); err != nil {
+		t.Fatalf("putConfig failed: %v", err)
+	}
+
+	resp, err := sc.Backend.HandleRequest(context.Background(), &logical.Request{
+		Operation: logical.ReadOperation,
+		Path:      "config",
+		Storage:   sc.Storage,
+	})
+	if err != nil {
+		t.Fatalf("config read failed: %v", err)
+	}
+	if resp == nil {
+		t.Fatal("expected a config read response")
+	}
+
+	assert.Equal(t, "cn", resp.Data["default_end_entity_name"])
+}

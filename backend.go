@@ -132,6 +132,13 @@ func (sc *storageContext) getClient() (*ejbcaClient, error) {
 	sc.Backend.lock.Lock()
 	unlockFunc = sc.Backend.lock.Unlock
 
+	// Re-check under the write lock: another goroutine may have built the
+	// client between releasing the read lock and acquiring the write lock.
+	if sc.Backend.client != nil {
+		logger.Trace("Returning cached client from Backend (populated by another goroutine)")
+		return sc.Backend.client, nil
+	}
+
 	config, err := sc.Config().getConfig()
 	if err != nil {
 		return nil, err
