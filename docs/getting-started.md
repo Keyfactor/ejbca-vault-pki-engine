@@ -192,6 +192,18 @@ The EJBCA PKI Secrets Engine also supports the following additional role fields 
 
 > **Note:** If left blank, the `end_entity_profile_name`, `certificate_profile_name`, and `end_entity_name` fields will default to the values configured in the `config` object.
 
+### Role fields governed by EJBCA
+
+Because this engine delegates certificate generation to EJBCA, several role and request fields that exist for compatibility with the built-in Vault PKI engine are **accepted and stored but not enforced by this engine**. The contents and validity of the issued certificate are instead governed by the configured EJBCA **certificate profile** and **end entity profile**. To enforce these constraints, configure them in EJBCA rather than relying on the Vault-side fields below:
+
+- **Validity / TTL** — `ttl`, `max_ttl`, `not_after`, and `not_before_duration` are not sent to EJBCA; certificate validity is determined by the EJBCA certificate profile. (When `generate_lease=true`, the issued certificate's `NotAfter` is used as the Vault lease TTL.)
+- **Key usage and extensions** — `key_usage`, `ext_key_usage`, `ext_key_usage_oids`, `server_flag`, `client_flag`, `code_signing_flag`, `email_protection_flag`, `policy_identifiers`, `basic_constraints_valid_for_non_ca`, and `max_path_length` are governed by the EJBCA certificate profile.
+- **Common name validation** — `cn_validations` is not applied. The common name is still checked against the engine's `allowed_domains` / `allow_*` settings, and then by EJBCA.
+- **Subject serial number** — the request `serial_number` subject field and the role's `allowed_serial_numbers` are not applied to the issued certificate.
+- **User IDs** — the request `user_ids` field and the role's `allowed_user_ids` are not applied to the issued certificate.
+
+> These fields remain in the role schema for drop-in compatibility with the built-in Vault PKI engine. Configure the equivalent restrictions in your EJBCA certificate and end entity profiles to enforce them.
+
 ### Vault Lease
 
 The EJBCA Vault PKI Engine can create [Vault Leases](https://developer.hashicorp.com/vault/docs/concepts/lease) for issued certificates if the role has `generate_lease=true`. If this option is set, the lease and certificate that it represents can be revoked with `vault revoke <lease_id>`. When the lease is revoked, the engine revokes the certificate in EJBCA and updates the backend accordingly for the regular paths.

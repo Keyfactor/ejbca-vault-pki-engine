@@ -15,6 +15,7 @@
 * Added the performance-standby guard to the config and role delete handlers, matching the create/update handlers, so delete requests on a performance standby are forwarded to the active node.
 * Corrected the `revocation_time` response schema type on `/revoke` (was `TypeDurationSecond`) to `TypeInt64`, matching `/revoke-with-key` and the actual epoch-seconds value.
 * Corrected the role LIST response schema to declare `keys` as a string slice instead of a map, and removed an unused `backend` field from the role path schema.
+* Documented that certain compatibility role/request fields (`ttl`/`max_ttl`/`not_after`/`not_before_duration`, `key_usage`/`ext_key_usage`/usage flags/`policy_identifiers`/`basic_constraints_valid_for_non_ca`/`max_path_length`, `cn_validations`, subject `serial_number`/`allowed_serial_numbers`, and `user_ids`/`allowed_user_ids`) are not enforced by the engine and are governed by the EJBCA certificate and end entity profiles.
 
 ## Features
 * Added an optional `revocation_reason` parameter to the `/revoke` and `/revoke-with-key` paths, accepting any RFC 5280 reason code and defaulting to `CESSATION_OF_OPERATION` (the previous hardcoded value).
