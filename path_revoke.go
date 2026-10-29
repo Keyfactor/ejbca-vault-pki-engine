@@ -42,8 +42,11 @@ hyphen-separated octal`,
 				},
 				"certificate": {
 					Type: framework.TypeString,
-					Description: `Certificate to revoke in PEM format; must be
-signed by an issuer in this mount.`,
+					Description: `Certificate to revoke, in PEM format. The
+certificate's issuer and serial number are read from the certificate
+itself. Revocation is carried out by the configured EJBCA service
+account, so the set of certificates that can be revoked is bounded by
+that account's permissions in EJBCA, not by this mount.`,
 				},
 				"revocation_reason": {
 					Type: framework.TypeString,
@@ -109,8 +112,12 @@ func pathRevokeWithKey(b *ejbcaBackend) []*framework.Path {
 				},
 				"certificate": {
 					Type: framework.TypeString,
-					Description: `Certificate to revoke in PEM format; must be
-                    signed by an issuer in this mount.`,
+					Description: `Certificate to revoke, in PEM format. The
+                    certificate's issuer and serial number are read from the
+                    certificate itself. Revocation is carried out by the
+                    configured EJBCA service account, so the set of
+                    certificates that can be revoked is bounded by that
+                    account's permissions in EJBCA, not by this mount.`,
 				},
 				"private_key": {
 					Type: framework.TypeString,
@@ -185,6 +192,15 @@ certificate must be provided to authenticate the request.
 `
 
 const pathRevokeHelpDesc = `
-This allows certificates to be revoke. A root token or corresponding
+This allows certificates to be revoked. A root token or corresponding
 private key is required.
+
+A certificate may be identified either by its serial_number (which must
+have been issued and stored by this mount) or by supplying the full
+certificate. When a certificate is supplied, its issuer and serial number
+are taken from the certificate itself and revocation is performed by the
+configured EJBCA service account. The plugin does not verify that a
+supplied certificate was issued through this mount, so the certificates
+that can be revoked this way are bounded by the EJBCA service account's
+permissions rather than by this mount.
 `

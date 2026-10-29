@@ -6,6 +6,8 @@
 * Fixed a cross-mount interaction and data race caused by a package-global default CA name being mutated at runtime. The default CA is now resolved per-request from the mount's stored configuration.
 * Fixed leased certificates issued with `format=der` not being revoked in EJBCA on lease expiry/revoke. Lease revocation now resolves the certificate by the serial number stored in the lease's internal data, independent of the response format.
 
+* Corrected misleading documentation and path help that claimed a supplied `certificate` must have been issued by this mount to be revoked. Revocation by supplied certificate is actually bounded by the configured EJBCA service account's permissions; the docs now describe the real behavior.
+
 ## Features
 * Added an optional `revocation_reason` parameter to the `/revoke` and `/revoke-with-key` paths, accepting any RFC 5280 reason code and defaulting to `CESSATION_OF_OPERATION` (the previous hardcoded value).
 

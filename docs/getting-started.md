@@ -238,7 +238,7 @@ vault write ejbca/revoke-with-key \
     private_key="-----BEGIN EC PRIVATE KEY----- MHcCAQEEII1YXWvr+8i5o8QQ5I3mF/T55AGzQ8VrC2VPHa+m5MvooAoGCCqGSM49 AwEHoUQDQgAEL6+GnD6BtY3mEY2qLfGJVPP4Cx23WeGYBbvxsgz+Kh85S7Z92llx zZUn7uSYC0bvNhHJ1I4SpZNKDWKbXWMgQQ== -----END EC PRIVATE KEY-----"
 ```
 
-> **Note:** The EJBCA PKI Secrets Engine cannot revoke certificates that were not issued by the EJBCA PKI Secrets Engine. That is, the certificate must exist in the Secrets Engine's backend.
+> **Note:** When revoking by `serial_number`, the certificate must exist in the Secrets Engine's backend (i.e. it was issued by this engine). When revoking by supplying the full `certificate`, the issuer and serial number are read from the certificate itself and the revocation is carried out by the configured EJBCA service account. In that case the engine does **not** require the certificate to have been issued through this engine, and the set of certificates that can be revoked is bounded by the EJBCA service account's permissions rather than by this mount.
 
 ### Read/List Paths
 The following paths can be used to fetch CA certificates. The paths that specify a `Content-Type` cannot be consumed using the `vault` command, and must be consumed using the Vault HTTP API. Any path that uses `ca` as its root will report the default issuer/CA configured in the Config path.
