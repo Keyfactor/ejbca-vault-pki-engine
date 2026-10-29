@@ -67,8 +67,8 @@ CESSATION_OF_OPERATION.`,
 							Description: "OK",
 							Fields: map[string]*framework.FieldSchema{
 								"revocation_time": {
-									Type:        framework.TypeDurationSecond,
-									Description: `Revocation Time`,
+									Type:        framework.TypeInt64,
+									Description: `Revocation time, in seconds since the Unix epoch`,
 									Required:    false,
 								},
 								"revocation_time_rfc3339": {
@@ -144,7 +144,7 @@ func pathRevokeWithKey(b *ejbcaBackend) []*framework.Path {
 							Fields: map[string]*framework.FieldSchema{
 								"revocation_time": {
 									Type:        framework.TypeInt64,
-									Description: `Revocation Time`,
+									Description: `Revocation time, in seconds since the Unix epoch`,
 									Required:    false,
 								},
 								"revocation_time_rfc3339": {
