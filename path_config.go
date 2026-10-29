@@ -407,6 +407,12 @@ func (b *ejbcaBackend) pathConfigWrite(ctx context.Context, req *logical.Request
 }
 
 func (b *ejbcaBackend) pathConfigDelete(ctx context.Context, req *logical.Request, _ *framework.FieldData) (*logical.Response, error) {
+	if b.isRunningOnPerformanceStandby() {
+		// Storage writes (including deletes) must happen on the active node;
+		// forward the request rather than failing with a raw storage error.
+		return nil, logical.ErrReadOnly
+	}
+
 	sc := b.makeStorageContext(ctx, req.Storage)
 	err := sc.Config().deleteConfig()
 

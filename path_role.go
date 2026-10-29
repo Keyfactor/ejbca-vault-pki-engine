@@ -1137,6 +1137,12 @@ func (b *ejbcaBackend) pathRoleCreate(ctx context.Context, req *logical.Request,
 func (b *ejbcaBackend) pathRoleDelete(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	b.Logger().Debug("Executing pathRoleDelete")
 
+	if b.isRunningOnPerformanceStandby() {
+		// Storage writes (including deletes) must happen on the active node;
+		// forward the request rather than failing with a raw storage error.
+		return nil, logical.ErrReadOnly
+	}
+
 	err := req.Storage.Delete(ctx, "role/"+data.Get("name").(string))
 	if err != nil {
 		return nil, err
