@@ -11,6 +11,7 @@
 * Added the configured `end_entity_name` to the role read response, which previously omitted it.
 * Fixed fetching an unknown certificate serial returning an HTTP 500. A serial not stored by this mount is now reported as a client-facing not-found error rather than an internal error.
 * Fixed the `default_end_entity_name` config field being unconfigurable due to a misspelled schema key (`default_end_endity_profile`). The field is now correctly named and returned by config read.
+* Fixed a missing second nil-check in the EJBCA client's double-checked locking that allowed concurrent first requests to each build and overwrite the cached client.
 
 ## Features
 * Added an optional `revocation_reason` parameter to the `/revoke` and `/revoke-with-key` paths, accepting any RFC 5280 reason code and defaulting to `CESSATION_OF_OPERATION` (the previous hardcoded value).
