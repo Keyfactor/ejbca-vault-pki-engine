@@ -24,6 +24,7 @@ import (
 	"crypto/x509/pkix"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/vault/sdk/logical"
@@ -96,6 +97,49 @@ func TestBuildCaEntry(t *testing.T) {
 		assert.Contains(t, entry.CAChain[0], "BEGIN CERTIFICATE")
 		// The first certificate is the CA certificate; the remainder is the chain.
 		assert.NotEqual(t, entry.CaCertificate, entry.CAChain[0])
+	})
+}
+
+func TestCaEntryIsFresh(t *testing.T) {
+	ttl := time.Hour
+
+	t.Run("recently fetched entry is fresh", func(t *testing.T) {
+		entry := caEntry{FetchedAt: time.Now().Unix()}
+		assert.True(t, caEntryIsFresh(entry, ttl))
+	})
+
+	t.Run("entry older than the TTL is stale", func(t *testing.T) {
+		entry := caEntry{FetchedAt: time.Now().Add(-2 * time.Hour).Unix()}
+		assert.False(t, caEntryIsFresh(entry, ttl))
+	})
+
+	t.Run("entry with no fetch timestamp is stale", func(t *testing.T) {
+		assert.False(t, caEntryIsFresh(caEntry{}, ttl))
+	})
+}
+
+func TestCaCacheTTL(t *testing.T) {
+	t.Run("defaults when unconfigured", func(t *testing.T) {
+		sc := newTestStorageContext(t)
+		assert.Equal(t, defaultCaCacheDuration, sc.CA().caCacheTTL())
+	})
+
+	t.Run("defaults when the configured duration is zero", func(t *testing.T) {
+		sc := newTestStorageContext(t)
+		require.NoError(t, sc.Config().putConfig(&ejbcaConfig{
+			Hostname:               "ejbca.example.com",
+			CaCacheDurationSeconds: 0,
+		}))
+		assert.Equal(t, defaultCaCacheDuration, sc.CA().caCacheTTL())
+	})
+
+	t.Run("uses the configured duration when set", func(t *testing.T) {
+		sc := newTestStorageContext(t)
+		require.NoError(t, sc.Config().putConfig(&ejbcaConfig{
+			Hostname:               "ejbca.example.com",
+			CaCacheDurationSeconds: 7200,
+		}))
+		assert.Equal(t, 2*time.Hour, sc.CA().caCacheTTL())
 	})
 }
 

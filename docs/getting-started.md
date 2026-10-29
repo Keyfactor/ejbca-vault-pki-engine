@@ -111,6 +111,7 @@ The `/config` endpoint must be configured first. The following table describes t
 | `default_end_entity_profile`  | The name of an end entity profile in the connected EJBCA instance that will be used to issue certificates if not specified by the role or per-request.                                                             |
 | `default_certificate_profile` | The name of a certificate profile in the connected EJBCA instance that is configured to issue certificates if not specified by the role or per-request.                                                            |
 | `default_end_entity_name`     | (optional) The name of the end entity, or configuration for how the EJBCA UpstreamAuthority should determine the end entity name. See [End Entity Name Customization](#configuring-end-entity-name) for more info. |
+| `ca_cache_duration`           | (optional) How long a CA certificate/chain fetched from EJBCA is cached before being re-fetched (e.g. `1h`, `30m`). A CA rotation in EJBCA is picked up within this window. Defaults to `1h` when unset.           |
 
 ### mTLS vs OAuth 2.0
 

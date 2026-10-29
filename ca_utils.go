@@ -26,6 +26,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/vault/sdk/helper/certutil"
 	"github.com/hashicorp/vault/sdk/helper/errutil"
@@ -39,6 +40,36 @@ const (
 type caEntry struct {
 	CaCertificate string   `json:"ca_certificate"`
 	CAChain       []string `json:"ca_chain"`
+	// FetchedAt is the Unix time (seconds) the entry was fetched from EJBCA,
+	// used to expire the cache so CA rotations are eventually picked up. A zero
+	// value (e.g. an entry cached before this field existed) is treated as
+	// stale.
+	FetchedAt int64 `json:"fetched_at"`
+}
+
+// defaultCaCacheDuration is the fallback lifetime for a cached CA entry when no
+// ca_cache_duration is configured. CA chains change rarely (only on rotation),
+// so a modest default keeps per-request cost near zero while still picking up
+// rotations within the window.
+const defaultCaCacheDuration = time.Hour
+
+// caEntryIsFresh reports whether a cached CA entry is still within its TTL. An
+// entry with no fetch timestamp is always considered stale.
+func caEntryIsFresh(entry caEntry, ttl time.Duration) bool {
+	if entry.FetchedAt == 0 {
+		return false
+	}
+	return time.Since(time.Unix(entry.FetchedAt, 0)) < ttl
+}
+
+// caCacheTTL resolves the effective CA cache lifetime from configuration,
+// falling back to defaultCaCacheDuration when unconfigured or on error.
+func (c *caStorageContext) caCacheTTL() time.Duration {
+	config, err := c.storageContext.Config().getConfig()
+	if err == nil && config != nil && config.CaCacheDurationSeconds > 0 {
+		return time.Duration(config.CaCacheDurationSeconds) * time.Second
+	}
+	return defaultCaCacheDuration
 }
 
 func (c *caStorageContext) resolveIssuerReference(caName string) error {
@@ -95,14 +126,22 @@ func (c *caStorageContext) fetchCaBundle(caName string) (*certutil.CAInfoBundle,
 
 	var parsedStorageEntry caEntry
 
+	// Determine whether a usable, non-expired cache entry exists.
+	cacheHit := false
 	if storageEntry != nil && storageEntry.Value != nil && len(storageEntry.Value) > 0 {
-		logger.Trace("CA entry found in storage")
-		err = storageEntry.DecodeJSON(&parsedStorageEntry)
-		if err != nil {
+		if err = storageEntry.DecodeJSON(&parsedStorageEntry); err != nil {
 			return nil, errutil.InternalError{Err: fmt.Sprintf("unable to decode ca entry: %v", err)}
 		}
-	} else {
-		logger.Trace("CA entry not found in storage, fetching from EJBCA")
+		if caEntryIsFresh(parsedStorageEntry, c.caCacheTTL()) {
+			logger.Trace("Using cached CA entry")
+			cacheHit = true
+		} else {
+			logger.Trace("Cached CA entry is stale or unstamped; refreshing from EJBCA")
+		}
+	}
+
+	if !cacheHit {
+		logger.Trace("Fetching CA entry from EJBCA")
 
 		client, err := c.storageContext.getClient()
 		if err != nil {
@@ -144,6 +183,7 @@ func (c *caStorageContext) fetchCaBundle(caName string) (*certutil.CAInfoBundle,
 		if err != nil {
 			return nil, err
 		}
+		parsedStorageEntry.FetchedAt = time.Now().Unix()
 
 		logger.Trace("Storing CA entry in storage")
 		err = c.putCaEntry(caName, parsedStorageEntry)

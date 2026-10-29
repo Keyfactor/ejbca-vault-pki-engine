@@ -49,6 +49,7 @@ type ejbcaConfig struct {
 	DefaultEndEntityProfileName   string   `json:"default_end_entity_profile"`
 	DefaultCertificateProfileName string   `json:"default_certificate_profile"`
 	DefaultEndEntityName          string   `json:"default_end_entity_name"`
+	CaCacheDurationSeconds        int64    `json:"ca_cache_duration"`
 }
 
 func pathConfig(b *ejbcaBackend) []*framework.Path {
@@ -187,6 +188,16 @@ func pathConfig(b *ejbcaBackend) []*framework.Path {
 						Sensitive: false,
 					},
 				},
+				"ca_cache_duration": {
+					Type:        framework.TypeDurationSecond,
+					Description: "How long a CA certificate/chain fetched from EJBCA is cached before it is re-fetched. A CA rotation in EJBCA is picked up within this window. Defaults to 1h when unset.",
+					Required:    false,
+					Default:     "1h",
+					DisplayAttrs: &framework.DisplayAttributes{
+						Name:      "CA Cache Duration",
+						Sensitive: false,
+					},
+				},
 			},
 			Operations: map[logical.Operation]framework.OperationHandler{
 				logical.ReadOperation: &framework.PathOperation{
@@ -241,6 +252,7 @@ func (b *ejbcaBackend) pathConfigRead(ctx context.Context, req *logical.Request,
 		"default_end_entity_profile":  config.DefaultEndEntityProfileName,
 		"default_end_entity_name":     config.DefaultEndEntityName,
 		"default_certificate_profile": config.DefaultCertificateProfileName,
+		"ca_cache_duration":           config.CaCacheDurationSeconds,
 	}
 
 	if config.ClientKey != "" {
@@ -392,6 +404,11 @@ func (b *ejbcaBackend) pathConfigWrite(ctx context.Context, req *logical.Request
 		config.DefaultEndEntityName = defaultEndEntityName.(string)
 	} else {
 		logger.Warn("default_end_entity_name not found in request")
+	}
+
+	if caCacheDuration, ok := data.GetOk("ca_cache_duration"); ok {
+		logger.Trace("CA cache duration present", "ca_cache_duration", caCacheDuration.(int))
+		config.CaCacheDurationSeconds = int64(caCacheDuration.(int))
 	}
 
 	err = sc.Config().putConfig(config)
