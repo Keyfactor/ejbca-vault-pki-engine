@@ -123,19 +123,11 @@ func (r *revokeBuilder) Config(sc *storageContext, path string, data *framework.
 		}
 	}
 
-	// EJBCA revocation requires the certificate to be a hex string, but the cert is stored in the storage storageContext
-	// with colons between the bytes. Prepare these now so we don't have to later.
-
-	certBundle, err := parsedCertBundle.ToCertBundle()
-	if err != nil {
+	if err := r.populateFromBundle(parsedCertBundle); err != nil {
 		logger.Error("Failed to convert parsed cert bundle to cert bundle: ", err)
-		r.errorResponse = logical.ErrorResponse("Failed to convert parsed cert bundle to cert bundle: ", err)
+		r.errorResponse = logical.ErrorResponse(fmt.Sprintf("Failed to convert parsed cert bundle to cert bundle: %s", err))
 		return r
 	}
-	r.storageContextSerialNumber = certBundle.SerialNumber
-	r.normalizedHexSerialNumber = strings.ReplaceAll(r.storageContextSerialNumber, ":", "")
-	r.issuerDn = parsedCertBundle.Certificate.Issuer.String()
-	r.parsedCertBundle = parsedCertBundle
 
 	if privateKeyRequired {
 		key, err := serializePemPrivateKey(privateKey.(string))
@@ -159,6 +151,58 @@ func (r *revokeBuilder) Config(sc *storageContext, path string, data *framework.
 	}
 
 	return r
+}
+
+// ConfigFromSerial configures the builder to revoke the certificate identified
+// by the given serial number, resolving it from the mount's stored
+// certificates. This is used by the lease-revocation hook, where the serial is
+// read from the secret's internal data; resolving by serial is independent of
+// the certificate response format (e.g. format=der), unlike parsing a rendered
+// certificate out of the lease data.
+func (r *revokeBuilder) ConfigFromSerial(sc *storageContext, serial string) *revokeBuilder {
+	r.storageContext = sc
+
+	logger := r.storageContext.Backend.Logger().Named("revokeBuilder.ConfigFromSerial")
+
+	if serial == "" {
+		logger.Error("serial number to revoke must be provided")
+		r.errorResponse = logical.ErrorResponse("serial number to revoke must be provided")
+		return r
+	}
+
+	parsedCertBundle, err := sc.Cert().fetchCertBundleBySerial(serial)
+	if err != nil {
+		message := fmt.Sprintf("failed to fetch certificate with serial number %s from backend", serial)
+		logger.Error(message)
+		r.errorResponse = logical.ErrorResponse(message)
+		return r
+	}
+
+	if err := r.populateFromBundle(parsedCertBundle); err != nil {
+		message := fmt.Sprintf("failed to convert parsed cert bundle to cert bundle: %s", err)
+		logger.Error(message)
+		r.errorResponse = logical.ErrorResponse(message)
+		return r
+	}
+
+	return r
+}
+
+// populateFromBundle records the serial number and issuer DN to revoke from a
+// parsed certificate bundle. EJBCA revocation requires the serial as a hex
+// string without the colons used in storage, so both forms are kept.
+func (r *revokeBuilder) populateFromBundle(parsedCertBundle *certutil.ParsedCertBundle) error {
+	certBundle, err := parsedCertBundle.ToCertBundle()
+	if err != nil {
+		return err
+	}
+
+	r.storageContextSerialNumber = certBundle.SerialNumber
+	r.normalizedHexSerialNumber = strings.ReplaceAll(r.storageContextSerialNumber, ":", "")
+	r.issuerDn = parsedCertBundle.Certificate.Issuer.String()
+	r.parsedCertBundle = parsedCertBundle
+
+	return nil
 }
 
 func (r *revokeBuilder) RevokeCertificate() (*logical.Response, error) {
