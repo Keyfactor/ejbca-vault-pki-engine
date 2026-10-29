@@ -46,10 +46,11 @@ func TestRole(t *testing.T) {
 	assert.NoError(t, err)
 
 	maxTTL, _ := time.ParseDuration("1h")
+	ttlDuration, _ := time.ParseDuration("15m")
 	notBeforeDuration, _ := time.ParseDuration("15m")
 	var testRole = map[string]interface{}{
 		"max_ttl":                            int(maxTTL.Seconds()),
-		"ttl":                                int(notBeforeDuration.Seconds()),
+		"ttl":                                int(ttlDuration.Seconds()),
 		"allow_localhost":                    true,
 		"allowed_domains":                    []string{"example.com", "example.org"},
 		"allow_bare_domains":                 true,
