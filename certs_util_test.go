@@ -21,6 +21,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"net"
 	"net/url"
 	"testing"
 
@@ -228,6 +229,38 @@ func TestValidateNamesEnforcesURISANs(t *testing.T) {
 		err := helper.validateNames(csr)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not allowed in this role")
+	})
+}
+
+func TestGetEndEntityName(t *testing.T) {
+	t.Run("ip selector with no IP SAN does not return the literal \"ip\"", func(t *testing.T) {
+		helper := newValidationHelper(t, &roleEntry{EndEntityName: "ip"})
+		csr := &x509.CertificateRequest{}
+		assert.Equal(t, "", helper.getEndEntityName(csr))
+	})
+
+	t.Run("ip selector with an IP SAN returns the IP address", func(t *testing.T) {
+		helper := newValidationHelper(t, &roleEntry{EndEntityName: "ip"})
+		csr := &x509.CertificateRequest{IPAddresses: []net.IP{net.ParseIP("192.0.2.10")}}
+		assert.Equal(t, "192.0.2.10", helper.getEndEntityName(csr))
+	})
+
+	t.Run("cn selector returns the common name", func(t *testing.T) {
+		helper := newValidationHelper(t, &roleEntry{EndEntityName: "cn"})
+		csr := &x509.CertificateRequest{Subject: pkix.Name{CommonName: "device.example.com"}}
+		assert.Equal(t, "device.example.com", helper.getEndEntityName(csr))
+	})
+
+	t.Run("a literal end entity name is used verbatim", func(t *testing.T) {
+		helper := newValidationHelper(t, &roleEntry{EndEntityName: "my-literal-ee-name"})
+		csr := &x509.CertificateRequest{}
+		assert.Equal(t, "my-literal-ee-name", helper.getEndEntityName(csr))
+	})
+
+	t.Run("cn selector with no common name falls through to empty", func(t *testing.T) {
+		helper := newValidationHelper(t, &roleEntry{EndEntityName: "cn"})
+		csr := &x509.CertificateRequest{}
+		assert.Equal(t, "", helper.getEndEntityName(csr))
 	})
 }
 

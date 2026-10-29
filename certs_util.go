@@ -792,8 +792,16 @@ func (i *issueSignHelper) getEndEntityName(csr *x509.CertificateRequest) string 
 		}
 	}
 
-	// End of defaults; if the endEntityName option is set to anything but cn, dns, or uri, use the option as the end entity name
-	if i.role.EndEntityName != "" && i.role.EndEntityName != "cn" && i.role.EndEntityName != "dns" && i.role.EndEntityName != "uri" {
+	// End of defaults; if the endEntityName option is set to a literal value
+	// (anything but the cn/dns/uri/ip selectors), use the option verbatim as
+	// the end entity name. The cn/dns/uri/ip selectors are handled above and
+	// must fall through to the error below when no matching SAN is present,
+	// rather than being used as a literal name.
+	if i.role.EndEntityName != "" &&
+		i.role.EndEntityName != "cn" &&
+		i.role.EndEntityName != "dns" &&
+		i.role.EndEntityName != "uri" &&
+		i.role.EndEntityName != "ip" {
 		eeName = i.role.EndEntityName
 		logger.Trace(fmt.Sprintf("Using the defaultEndEntityName as the EJBCA end entity name: %q", eeName))
 		return eeName
