@@ -9,6 +9,7 @@
 * Corrected misleading documentation and path help that claimed a supplied `certificate` must have been issued by this mount to be revoked. Revocation by supplied certificate is actually bounded by the configured EJBCA service account's permissions; the docs now describe the real behavior.
 * Fixed `end_entity_name=ip` producing the literal end-entity name `"ip"` when the request had no IP SAN; it now falls through to an error like the other `cn`/`dns`/`uri` selectors.
 * Added the configured `end_entity_name` to the role read response, which previously omitted it.
+* Fixed fetching an unknown certificate serial returning an HTTP 500. A serial not stored by this mount is now reported as a client-facing not-found error rather than an internal error.
 
 ## Features
 * Added an optional `revocation_reason` parameter to the `/revoke` and `/revoke-with-key` paths, accepting any RFC 5280 reason code and defaulting to `CESSATION_OF_OPERATION` (the previous hardcoded value).

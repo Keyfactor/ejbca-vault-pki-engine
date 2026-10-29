@@ -18,12 +18,26 @@ package ejbca
 
 import (
 	"encoding/pem"
+	"errors"
 	"testing"
 
+	"github.com/hashicorp/vault/sdk/helper/errutil"
 	"github.com/hashicorp/vault/sdk/logical"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestFetchCertBundleBySerialNotFound(t *testing.T) {
+	sc := newTestStorageContext(t)
+
+	_, err := sc.Cert().fetchCertBundleBySerial("de:ad:be:ef")
+	require.Error(t, err)
+
+	// A missing serial must surface as a UserError (mapped to a clean client
+	// response) rather than an InternalError (HTTP 500).
+	var userErr errutil.UserError
+	assert.True(t, errors.As(err, &userErr), "expected a UserError for a missing serial, got %T", err)
+}
 
 func TestLeaseSerialNumber(t *testing.T) {
 	t.Run("nil secret returns empty", func(t *testing.T) {
