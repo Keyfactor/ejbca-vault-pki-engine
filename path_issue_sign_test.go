@@ -206,7 +206,10 @@ func testFetchCert(t *testing.T, b logical.Backend, s logical.Storage, serial st
 }
 
 func generateCSR(subject string) (string, error) {
-	keyBytes, _ := rsa.GenerateKey(rand.Reader, 2048)
+	keyBytes, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return "", err
+	}
 
 	subj, err := parseSubjectDN(subject, false)
 	if err != nil {
