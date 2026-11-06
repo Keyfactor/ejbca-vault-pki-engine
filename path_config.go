@@ -29,9 +29,11 @@ const (
 	configStoragePath = "config"
 )
 
-var (
-	defaultCaName = "ManagementCA"
-)
+// defaultCaName is the fallback CA name used as the schema default for the
+// ca/default_ca fields and when no default_ca has been configured. The
+// configured value is stored per-backend in config.DefaultCAName and resolved
+// per-request; this constant must not be mutated at runtime.
+const defaultCaName = "ManagementCA"
 
 type ejbcaConfig struct {
 	Hostname                      string   `json:"hostname"`
@@ -47,6 +49,7 @@ type ejbcaConfig struct {
 	DefaultEndEntityProfileName   string   `json:"default_end_entity_profile"`
 	DefaultCertificateProfileName string   `json:"default_certificate_profile"`
 	DefaultEndEntityName          string   `json:"default_end_entity_name"`
+	CaCacheDurationSeconds        int64    `json:"ca_cache_duration"`
 }
 
 func pathConfig(b *ejbcaBackend) []*framework.Path {
@@ -170,7 +173,7 @@ func pathConfig(b *ejbcaBackend) []*framework.Path {
 						Sensitive: false,
 					},
 				},
-				"default_end_endity_profile": {
+				"default_end_entity_name": {
 					Type: framework.TypeString,
 					Description: `The name of the End Entity that will be created or used in EJBCA for certificate issuance. The value can be one of the following:
    * cn: Uses the Common Name from the CSR's Distinguished Name.
@@ -181,7 +184,17 @@ func pathConfig(b *ejbcaBackend) []*framework.Path {
 					Required: false,
 					Default:  "",
 					DisplayAttrs: &framework.DisplayAttributes{
-						Name:      "Default End Entity Profile",
+						Name:      "Default End Entity Name",
+						Sensitive: false,
+					},
+				},
+				"ca_cache_duration": {
+					Type:        framework.TypeDurationSecond,
+					Description: "How long a CA certificate/chain fetched from EJBCA is cached before it is re-fetched. A CA rotation in EJBCA is picked up within this window. Defaults to 1h when unset.",
+					Required:    false,
+					Default:     "1h",
+					DisplayAttrs: &framework.DisplayAttributes{
+						Name:      "CA Cache Duration",
 						Sensitive: false,
 					},
 				},
@@ -237,7 +250,9 @@ func (b *ejbcaBackend) pathConfigRead(ctx context.Context, req *logical.Request,
 		"hostname":                    config.Hostname,
 		"default_ca":                  config.DefaultCAName,
 		"default_end_entity_profile":  config.DefaultEndEntityProfileName,
+		"default_end_entity_name":     config.DefaultEndEntityName,
 		"default_certificate_profile": config.DefaultCertificateProfileName,
+		"ca_cache_duration":           config.CaCacheDurationSeconds,
 	}
 
 	if config.ClientKey != "" {
@@ -366,9 +381,6 @@ func (b *ejbcaBackend) pathConfigWrite(ctx context.Context, req *logical.Request
 	if defaultCa, ok := data.GetOk("default_ca"); ok {
 		logger.Trace("Default CA present", "default_ca", defaultCa.(string))
 		config.DefaultCAName = defaultCa.(string)
-		// We can safely set the global defaultCaName since only one instance of Config ever exists in the backend
-		logger.Trace("Globally setting default CA name", "default_ca", defaultCa.(string))
-		defaultCaName = defaultCa.(string)
 	} else {
 		logger.Warn("default_ca not found in request")
 	}
@@ -394,6 +406,11 @@ func (b *ejbcaBackend) pathConfigWrite(ctx context.Context, req *logical.Request
 		logger.Warn("default_end_entity_name not found in request")
 	}
 
+	if caCacheDuration, ok := data.GetOk("ca_cache_duration"); ok {
+		logger.Trace("CA cache duration present", "ca_cache_duration", caCacheDuration.(int))
+		config.CaCacheDurationSeconds = int64(caCacheDuration.(int))
+	}
+
 	err = sc.Config().putConfig(config)
 	if err != nil {
 		return nil, err
@@ -407,6 +424,12 @@ func (b *ejbcaBackend) pathConfigWrite(ctx context.Context, req *logical.Request
 }
 
 func (b *ejbcaBackend) pathConfigDelete(ctx context.Context, req *logical.Request, _ *framework.FieldData) (*logical.Response, error) {
+	if b.isRunningOnPerformanceStandby() {
+		// Storage writes (including deletes) must happen on the active node;
+		// forward the request rather than failing with a raw storage error.
+		return nil, logical.ErrReadOnly
+	}
+
 	sc := b.makeStorageContext(ctx, req.Storage)
 	err := sc.Config().deleteConfig()
 

@@ -26,6 +26,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/vault/sdk/helper/certutil"
 	"github.com/hashicorp/vault/sdk/helper/errutil"
@@ -39,6 +40,36 @@ const (
 type caEntry struct {
 	CaCertificate string   `json:"ca_certificate"`
 	CAChain       []string `json:"ca_chain"`
+	// FetchedAt is the Unix time (seconds) the entry was fetched from EJBCA,
+	// used to expire the cache so CA rotations are eventually picked up. A zero
+	// value (e.g. an entry cached before this field existed) is treated as
+	// stale.
+	FetchedAt int64 `json:"fetched_at"`
+}
+
+// defaultCaCacheDuration is the fallback lifetime for a cached CA entry when no
+// ca_cache_duration is configured. CA chains change rarely (only on rotation),
+// so a modest default keeps per-request cost near zero while still picking up
+// rotations within the window.
+const defaultCaCacheDuration = time.Hour
+
+// caEntryIsFresh reports whether a cached CA entry is still within its TTL. An
+// entry with no fetch timestamp is always considered stale.
+func caEntryIsFresh(entry caEntry, ttl time.Duration) bool {
+	if entry.FetchedAt == 0 {
+		return false
+	}
+	return time.Since(time.Unix(entry.FetchedAt, 0)) < ttl
+}
+
+// caCacheTTL resolves the effective CA cache lifetime from configuration,
+// falling back to defaultCaCacheDuration when unconfigured or on error.
+func (c *caStorageContext) caCacheTTL() time.Duration {
+	config, err := c.storageContext.Config().getConfig()
+	if err == nil && config != nil && config.CaCacheDurationSeconds > 0 {
+		return time.Duration(config.CaCacheDurationSeconds) * time.Second
+	}
+	return defaultCaCacheDuration
 }
 
 func (c *caStorageContext) resolveIssuerReference(caName string) error {
@@ -95,14 +126,22 @@ func (c *caStorageContext) fetchCaBundle(caName string) (*certutil.CAInfoBundle,
 
 	var parsedStorageEntry caEntry
 
+	// Determine whether a usable, non-expired cache entry exists.
+	cacheHit := false
 	if storageEntry != nil && storageEntry.Value != nil && len(storageEntry.Value) > 0 {
-		logger.Trace("CA entry found in storage")
-		err = storageEntry.DecodeJSON(&parsedStorageEntry)
-		if err != nil {
+		if err = storageEntry.DecodeJSON(&parsedStorageEntry); err != nil {
 			return nil, errutil.InternalError{Err: fmt.Sprintf("unable to decode ca entry: %v", err)}
 		}
-	} else {
-		logger.Trace("CA entry not found in storage, fetching from EJBCA")
+		if caEntryIsFresh(parsedStorageEntry, c.caCacheTTL()) {
+			logger.Trace("Using cached CA entry")
+			cacheHit = true
+		} else {
+			logger.Trace("Cached CA entry is stale or unstamped; refreshing from EJBCA")
+		}
+	}
+
+	if !cacheHit {
+		logger.Trace("Fetching CA entry from EJBCA")
 
 		client, err := c.storageContext.getClient()
 		if err != nil {
@@ -125,6 +164,13 @@ func (c *caStorageContext) fetchCaBundle(caName string) (*certutil.CAInfoBundle,
 			}
 		}
 
+		// If no CA matched the requested name, caSubjectDN is empty and the
+		// chain download would yield nothing. Fail cleanly here rather than
+		// downloading and then panicking on an empty chain below.
+		if caSubjectDN == "" {
+			return nil, errutil.UserError{Err: fmt.Sprintf("no certificate authority named %q was found in EJBCA", caName)}
+		}
+
 		// Then, download the certificate chain
 		logger.Trace(fmt.Sprintf("Fetching CA chain for CA called %q with DN %q", caName, caSubjectDN))
 		chain, err := c.downloadCaChain(c.storageContext.Context, client, caSubjectDN)
@@ -132,23 +178,12 @@ func (c *caStorageContext) fetchCaBundle(caName string) (*certutil.CAInfoBundle,
 			return nil, err
 		}
 
-		// Compile the chain into a list of PEM-encoded certificates
-		var chainList []string
-		for _, cert := range chain {
-			block := pem.Block{
-				Type:  "CERTIFICATE",
-				Bytes: cert.Raw,
-			}
-			chainList = append(chainList, strings.TrimSpace(string(pem.EncodeToMemory(&block))))
+		// Compile the chain into a CA entry, guarding against an empty chain
+		parsedStorageEntry, err = buildCaEntry(chain)
+		if err != nil {
+			return nil, err
 		}
-
-		// Store the CA certificate and chain in Vault
-
-		parsedStorageEntry = caEntry{
-			//SerialNumber:  certutil.GetHexFormatted(chain[0].SerialNumber.Bytes(), ":"),
-			CaCertificate: chainList[0],
-			CAChain:       chainList[1:],
-		}
+		parsedStorageEntry.FetchedAt = time.Now().Unix()
 
 		logger.Trace("Storing CA entry in storage")
 		err = c.putCaEntry(caName, parsedStorageEntry)
@@ -177,6 +212,31 @@ func (c *caStorageContext) fetchCaBundle(caName string) (*certutil.CAInfoBundle,
 	}
 
 	return caInfo, nil
+}
+
+// buildCaEntry PEM-encodes a downloaded CA certificate chain into a caEntry,
+// using the first certificate as the CA certificate and the remainder as the
+// chain. It returns a UserError (rather than panicking on an out-of-range
+// index) when the chain is empty, which happens when EJBCA returns no
+// certificates for the requested CA.
+func buildCaEntry(chain []*x509.Certificate) (caEntry, error) {
+	var chainList []string
+	for _, cert := range chain {
+		block := pem.Block{
+			Type:  "CERTIFICATE",
+			Bytes: cert.Raw,
+		}
+		chainList = append(chainList, strings.TrimSpace(string(pem.EncodeToMemory(&block))))
+	}
+
+	if len(chainList) == 0 {
+		return caEntry{}, errutil.UserError{Err: "no CA certificates were returned for the requested certificate authority"}
+	}
+
+	return caEntry{
+		CaCertificate: chainList[0],
+		CAChain:       chainList[1:],
+	}, nil
 }
 
 func (b *caResponseBuilder) getPemEncoder() func(*certutil.CAInfoBundle) []string {
@@ -268,8 +328,18 @@ func (b *caResponseBuilder) Config(sc *storageContext, path string) *caResponseB
 		b.response.Data[logical.HTTPStatusCode] = http.StatusNoContent
 	}
 
-	b.sc.Backend.Logger().Trace("CA Path detected, fetching default CA [setting caName to defaultCaName]", "defaultCaName", defaultCaName)
-	b.caName = defaultCaName
+	// Resolve the default CA from the per-backend stored config rather than a
+	// mutable package global, so concurrent mounts don't clobber one another.
+	// Fall back to the built-in default when unconfigured or on error.
+	caName := defaultCaName
+	if config, err := b.sc.Config().getConfig(); err != nil {
+		b.sc.Backend.Logger().Warn("Could not read config to resolve default CA; using built-in default", "defaultCaName", defaultCaName, "error", err)
+	} else if config != nil && config.DefaultCAName != "" {
+		caName = config.DefaultCAName
+	}
+
+	b.sc.Backend.Logger().Trace("CA Path detected, setting caName to configured default CA", "caName", caName)
+	b.caName = caName
 
 	return b
 }

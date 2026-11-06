@@ -58,8 +58,44 @@ type revokeBuilder struct {
 	issuerDn                   string
 	normalizedHexSerialNumber  string
 	storageContextSerialNumber string
+	reason                     string
 
 	errorResponse *logical.Response
+}
+
+// defaultRevocationReason is the RFC 5280 reason code used when a revocation
+// request does not specify one.
+const defaultRevocationReason = "CESSATION_OF_OPERATION"
+
+// validRevocationReasons are the RFC 5280 reason codes accepted by EJBCA's
+// revoke API.
+var validRevocationReasons = map[string]struct{}{
+	"NOT_REVOKED":            {},
+	"UNSPECIFIED":            {},
+	"KEY_COMPROMISE":         {},
+	"CA_COMPROMISE":          {},
+	"AFFILIATION_CHANGED":    {},
+	"SUPERSEDED":             {},
+	"CESSATION_OF_OPERATION": {},
+	"CERTIFICATE_HOLD":       {},
+	"REMOVE_FROM_CRL":        {},
+	"PRIVILEGES_WITHDRAWN":   {},
+	"AA_COMPROMISE":          {},
+}
+
+// resolveRevocationReason normalizes and validates a revocation reason code,
+// falling back to the default when none is provided.
+func resolveRevocationReason(reason string) (string, error) {
+	if strings.TrimSpace(reason) == "" {
+		return defaultRevocationReason, nil
+	}
+
+	normalized := strings.ToUpper(strings.TrimSpace(reason))
+	if _, ok := validRevocationReasons[normalized]; !ok {
+		return "", fmt.Errorf("invalid revocation reason %q", reason)
+	}
+
+	return normalized, nil
 }
 
 func (r *revokeBuilder) Config(sc *storageContext, path string, data *framework.FieldData) *revokeBuilder {
@@ -85,6 +121,14 @@ func (r *revokeBuilder) Config(sc *storageContext, path string, data *framework.
 		r.errorResponse = logical.ErrorResponse("The serial number or certificate to revoke must be provided.")
 		return r
 	}
+
+	reason, reasonErr := resolveRevocationReason(data.Get("revocation_reason").(string))
+	if reasonErr != nil {
+		logger.Error(reasonErr.Error())
+		r.errorResponse = logical.ErrorResponse(reasonErr.Error())
+		return r
+	}
+	r.reason = reason
 
 	if !keyPresent && privateKeyRequired {
 		logger.Debug("Private key is required with the /revoke-with-key path")
@@ -123,19 +167,11 @@ func (r *revokeBuilder) Config(sc *storageContext, path string, data *framework.
 		}
 	}
 
-	// EJBCA revocation requires the certificate to be a hex string, but the cert is stored in the storage storageContext
-	// with colons between the bytes. Prepare these now so we don't have to later.
-
-	certBundle, err := parsedCertBundle.ToCertBundle()
-	if err != nil {
+	if err := r.populateFromBundle(parsedCertBundle); err != nil {
 		logger.Error("Failed to convert parsed cert bundle to cert bundle: ", err)
-		r.errorResponse = logical.ErrorResponse("Failed to convert parsed cert bundle to cert bundle: ", err)
+		r.errorResponse = logical.ErrorResponse(fmt.Sprintf("Failed to convert parsed cert bundle to cert bundle: %s", err))
 		return r
 	}
-	r.storageContextSerialNumber = certBundle.SerialNumber
-	r.normalizedHexSerialNumber = strings.ReplaceAll(r.storageContextSerialNumber, ":", "")
-	r.issuerDn = parsedCertBundle.Certificate.Issuer.String()
-	r.parsedCertBundle = parsedCertBundle
 
 	if privateKeyRequired {
 		key, err := serializePemPrivateKey(privateKey.(string))
@@ -161,6 +197,58 @@ func (r *revokeBuilder) Config(sc *storageContext, path string, data *framework.
 	return r
 }
 
+// ConfigFromSerial configures the builder to revoke the certificate identified
+// by the given serial number, resolving it from the mount's stored
+// certificates. This is used by the lease-revocation hook, where the serial is
+// read from the secret's internal data; resolving by serial is independent of
+// the certificate response format (e.g. format=der), unlike parsing a rendered
+// certificate out of the lease data.
+func (r *revokeBuilder) ConfigFromSerial(sc *storageContext, serial string) *revokeBuilder {
+	r.storageContext = sc
+
+	logger := r.storageContext.Backend.Logger().Named("revokeBuilder.ConfigFromSerial")
+
+	if serial == "" {
+		logger.Error("serial number to revoke must be provided")
+		r.errorResponse = logical.ErrorResponse("serial number to revoke must be provided")
+		return r
+	}
+
+	parsedCertBundle, err := sc.Cert().fetchCertBundleBySerial(serial)
+	if err != nil {
+		message := fmt.Sprintf("failed to fetch certificate with serial number %s from backend", serial)
+		logger.Error(message)
+		r.errorResponse = logical.ErrorResponse(message)
+		return r
+	}
+
+	if err := r.populateFromBundle(parsedCertBundle); err != nil {
+		message := fmt.Sprintf("failed to convert parsed cert bundle to cert bundle: %s", err)
+		logger.Error(message)
+		r.errorResponse = logical.ErrorResponse(message)
+		return r
+	}
+
+	return r
+}
+
+// populateFromBundle records the serial number and issuer DN to revoke from a
+// parsed certificate bundle. EJBCA revocation requires the serial as a hex
+// string without the colons used in storage, so both forms are kept.
+func (r *revokeBuilder) populateFromBundle(parsedCertBundle *certutil.ParsedCertBundle) error {
+	certBundle, err := parsedCertBundle.ToCertBundle()
+	if err != nil {
+		return err
+	}
+
+	r.storageContextSerialNumber = certBundle.SerialNumber
+	r.normalizedHexSerialNumber = strings.ReplaceAll(r.storageContextSerialNumber, ":", "")
+	r.issuerDn = parsedCertBundle.Certificate.Issuer.String()
+	r.parsedCertBundle = parsedCertBundle
+
+	return nil
+}
+
 func (r *revokeBuilder) RevokeCertificate() (*logical.Response, error) {
 	if r.errorResponse != nil {
 		return r.errorResponse, nil
@@ -176,8 +264,13 @@ func (r *revokeBuilder) RevokeCertificate() (*logical.Response, error) {
 		return logical.ErrorResponse(message), nil
 	}
 
-	logger.Debug(fmt.Sprintf("Calling EJBCA to revoke certificate with serial number %s [%s]", r.storageContextSerialNumber, r.normalizedHexSerialNumber))
-	execute, b, err := client.V1CertificateApi.RevokeCertificate(r.storageContext.Context, r.issuerDn, r.normalizedHexSerialNumber).Reason("CESSATION_OF_OPERATION").Execute()
+	reason := r.reason
+	if reason == "" {
+		reason = defaultRevocationReason
+	}
+
+	logger.Debug(fmt.Sprintf("Calling EJBCA to revoke certificate with serial number %s [%s] with reason %s", r.storageContextSerialNumber, r.normalizedHexSerialNumber, reason))
+	execute, b, err := client.V1CertificateApi.RevokeCertificate(r.storageContext.Context, r.issuerDn, r.normalizedHexSerialNumber).Reason(reason).Execute()
 	if err != nil {
 		var ejbcaError ejbcaAPIError
 		if errors.As(client.EjbcaAPIError(r.storageContext.Backend, fmt.Sprintf("failed to revoke certificate with serial number %s [%s]", r.storageContextSerialNumber, r.normalizedHexSerialNumber), err), &ejbcaError) {
@@ -699,8 +792,16 @@ func (i *issueSignHelper) getEndEntityName(csr *x509.CertificateRequest) string 
 		}
 	}
 
-	// End of defaults; if the endEntityName option is set to anything but cn, dns, or uri, use the option as the end entity name
-	if i.role.EndEntityName != "" && i.role.EndEntityName != "cn" && i.role.EndEntityName != "dns" && i.role.EndEntityName != "uri" {
+	// End of defaults; if the endEntityName option is set to a literal value
+	// (anything but the cn/dns/uri/ip selectors), use the option verbatim as
+	// the end entity name. The cn/dns/uri/ip selectors are handled above and
+	// must fall through to the error below when no matching SAN is present,
+	// rather than being used as a literal name.
+	if i.role.EndEntityName != "" &&
+		i.role.EndEntityName != "cn" &&
+		i.role.EndEntityName != "dns" &&
+		i.role.EndEntityName != "uri" &&
+		i.role.EndEntityName != "ip" {
 		eeName = i.role.EndEntityName
 		logger.Trace(fmt.Sprintf("Using the defaultEndEntityName as the EJBCA end entity name: %q", eeName))
 		return eeName
@@ -864,26 +965,36 @@ func (i *issueSignHelper) getURINames() ([]*url.URL, error) {
 }
 
 func (i *issueSignHelper) getOtherSANs() (map[string][]string, error) {
+	if sans := i.data.Get("other_sans").([]string); len(sans) > 0 {
+		return parseOtherSANs(sans)
+	}
+
+	return map[string][]string{}, nil
+}
+
+// parseOtherSANs parses a list of other SANs in the "<oid>;<type>:<value>" form
+// (the same syntax used by both the other_sans request parameter and the role's
+// allowed_other_sans) into a map of OID to values. Only UTF-8 types are
+// supported.
+func parseOtherSANs(sans []string) (map[string][]string, error) {
 	result := map[string][]string{}
 
-	if sans := i.data.Get("other_sans").([]string); len(sans) > 0 {
-		for _, other := range sans {
-			splitOther := strings.SplitN(other, ";", 2)
-			if len(splitOther) != 2 {
-				return nil, fmt.Errorf("expected a semicolon in other SAN %q", other)
-			}
-			splitType := strings.SplitN(splitOther[1], ":", 2)
-			if len(splitType) != 2 {
-				return nil, fmt.Errorf("expected a colon in other SAN %q", other)
-			}
-			switch {
-			case strings.EqualFold(splitType[0], "utf8"):
-			case strings.EqualFold(splitType[0], "utf-8"):
-			default:
-				return nil, fmt.Errorf("only utf8 other SANs are supported; found non-supported type in other SAN %q", other)
-			}
-			result[splitOther[0]] = append(result[splitOther[0]], splitType[1])
+	for _, other := range sans {
+		splitOther := strings.SplitN(other, ";", 2)
+		if len(splitOther) != 2 {
+			return nil, fmt.Errorf("expected a semicolon in other SAN %q", other)
 		}
+		splitType := strings.SplitN(splitOther[1], ":", 2)
+		if len(splitType) != 2 {
+			return nil, fmt.Errorf("expected a colon in other SAN %q", other)
+		}
+		switch {
+		case strings.EqualFold(splitType[0], "utf8"):
+		case strings.EqualFold(splitType[0], "utf-8"):
+		default:
+			return nil, fmt.Errorf("only utf8 other SANs are supported; found non-supported type in other SAN %q", other)
+		}
+		result[splitOther[0]] = append(result[splitOther[0]], splitType[1])
 	}
 
 	return result, nil
@@ -1354,6 +1465,12 @@ func (i *issueSignHelper) validateNames(csr *x509.CertificateRequest) error {
 		return err
 	}
 
+	// Finally validate any "other" (otherName) SANs against the role's
+	// allowed_other_sans restrictions.
+	if err := i.validateOtherSANs(csr); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -1392,6 +1509,63 @@ func (i *issueSignHelper) validateURISANs(csr *x509.CertificateRequest) error {
 		if !valid {
 			logger.Debug(fmt.Sprintf("URI %q is not allowed by role", uri.String()))
 			return fmt.Errorf("URI Subject Alternative Name %q is not allowed by this role, please add it to allowed_uri_sans", uri.String())
+		}
+	}
+
+	return nil
+}
+
+// validateOtherSANs validates all "other" (otherName) Subject Alternative Names
+// from the CSR against the allowed_other_sans restrictions in the role. Like
+// validateURISANs, this is the single enforcement point for both the issue flow
+// (other SANs supplied via the other_sans API parameter) and the sign flow
+// (other SANs embedded in a client-supplied CSR): in both cases the generated or
+// submitted CSR carries the otherName entries in its SAN extension.
+func (i *issueSignHelper) validateOtherSANs(csr *x509.CertificateRequest) error {
+	// A role value of exactly ["*"] permits any other SAN. This mirrors upstream
+	// Vault PKI and matches what the sign-verbatim path sets.
+	if len(i.role.AllowedOtherSANs) == 1 && i.role.AllowedOtherSANs[0] == "*" {
+		return nil
+	}
+
+	requested, err := certutil.GetOtherSANsFromX509Extensions(csr.Extensions)
+	if err != nil {
+		return fmt.Errorf("could not parse other SANs from the certificate request: %w", err)
+	}
+	if len(requested) == 0 {
+		return nil
+	}
+
+	logger := i.storageContext.Backend.Logger().Named("issueSignHelper.validateOtherSANs")
+	logger.Debug("Validating CSR other SANs")
+
+	// Other SANs were provided but the role permits none.
+	if len(i.role.AllowedOtherSANs) == 0 {
+		return fmt.Errorf("other Subject Alternative Names are not allowed in this role, but were provided")
+	}
+
+	allowed, err := parseOtherSANs(i.role.AllowedOtherSANs)
+	if err != nil {
+		return fmt.Errorf("error parsing role's allowed_other_sans: %w", err)
+	}
+
+	for _, name := range requested {
+		allowedValues, ok := allowed[name.Oid]
+		if !ok {
+			return fmt.Errorf("other SAN with OID %q is not allowed by this role, please add it to allowed_other_sans", name.Oid)
+		}
+
+		valid := false
+		for _, allowedValue := range allowedValues {
+			if glob.Glob(allowedValue, name.Value) {
+				valid = true
+				break
+			}
+		}
+
+		if !valid {
+			logger.Debug(fmt.Sprintf("other SAN %q is not allowed by role", name.String()))
+			return fmt.Errorf("other SAN %q is not allowed by this role, please add it to allowed_other_sans", name.String())
 		}
 	}
 

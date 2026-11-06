@@ -65,6 +65,30 @@ func (b *ejbcaBackend) secretCertsRevoke(ctx context.Context, req *logical.Reque
 		return nil, logical.ErrReadOnly
 	}
 
+	sc := b.makeStorageContext(ctx, req.Storage)
 	builder := &revokeBuilder{}
-	return builder.Config(b.makeStorageContext(ctx, req.Storage), req.Path, data).RevokeCertificate()
+
+	// Prefer the serial number stored in the lease's internal data. It is
+	// independent of the certificate response format, whereas the certificate
+	// rendered into the lease data may be base64-DER (format=der), which the
+	// certificate-based revoke path cannot parse.
+	if serial := leaseSerialNumber(req.Secret); serial != "" {
+		logger.Debug("Revoking leased certificate by serial number from internal data", "serial_number", serial)
+		return builder.ConfigFromSerial(sc, serial).RevokeCertificate()
+	}
+
+	logger.Warn("No serial number in lease internal data; falling back to certificate-based revocation")
+	return builder.Config(sc, req.Path, data).RevokeCertificate()
+}
+
+// leaseSerialNumber returns the certificate serial number stored in a secret's
+// internal data, or the empty string if it is not present.
+func leaseSerialNumber(secret *logical.Secret) string {
+	if secret == nil || secret.InternalData == nil {
+		return ""
+	}
+	if serial, ok := secret.InternalData["serial_number"].(string); ok {
+		return serial
+	}
+	return ""
 }
