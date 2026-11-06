@@ -184,15 +184,20 @@ func (c *certStorageContext) fetchCertBundleBySerial(serial string) (*certutil.P
 		return nil, errutil.InternalError{Err: fmt.Sprintf("error fetching certificate %s: %s", path, err)}
 	}
 
+	// A missing storage entry means this mount never stored a certificate with
+	// this serial. That is a client-facing not-found, not an internal error, so
+	// return a UserError (callers map this to a clean 4xx rather than a 500).
+	if storageEntry == nil || storageEntry.Value == nil || len(storageEntry.Value) == 0 {
+		logger.Trace("Certificate not found in storage", "path", path)
+		return nil, errutil.UserError{Err: fmt.Sprintf("certificate with serial number %s not found", serial)}
+	}
+
+	logger.Trace("Certificate found in storage", "path", path)
+
 	var parsedStorageEntry certEntry
-
-	if storageEntry != nil && storageEntry.Value != nil && len(storageEntry.Value) > 0 {
-		logger.Trace("Certificate found in storage", "path", path)
-
-		err = storageEntry.DecodeJSON(&parsedStorageEntry)
-		if err != nil {
-			return nil, errutil.InternalError{Err: fmt.Sprintf("error decoding certificate entry with sn %s: %s", path, err)}
-		}
+	err = storageEntry.DecodeJSON(&parsedStorageEntry)
+	if err != nil {
+		return nil, errutil.InternalError{Err: fmt.Sprintf("error decoding certificate entry with sn %s: %s", path, err)}
 	}
 
 	if parsedStorageEntry.Certificate == "" {

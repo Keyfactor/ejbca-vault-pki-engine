@@ -111,6 +111,7 @@ The `/config` endpoint must be configured first. The following table describes t
 | `default_end_entity_profile`  | The name of an end entity profile in the connected EJBCA instance that will be used to issue certificates if not specified by the role or per-request.                                                             |
 | `default_certificate_profile` | The name of a certificate profile in the connected EJBCA instance that is configured to issue certificates if not specified by the role or per-request.                                                            |
 | `default_end_entity_name`     | (optional) The name of the end entity, or configuration for how the EJBCA UpstreamAuthority should determine the end entity name. See [End Entity Name Customization](#configuring-end-entity-name) for more info. |
+| `ca_cache_duration`           | (optional) How long a CA certificate/chain fetched from EJBCA is cached before being re-fetched (e.g. `1h`, `30m`). A CA rotation in EJBCA is picked up within this window. Defaults to `1h` when unset.           |
 
 ### mTLS vs OAuth 2.0
 
@@ -192,6 +193,18 @@ The EJBCA PKI Secrets Engine also supports the following additional role fields 
 
 > **Note:** If left blank, the `end_entity_profile_name`, `certificate_profile_name`, and `end_entity_name` fields will default to the values configured in the `config` object.
 
+### Role fields governed by EJBCA
+
+Because this engine delegates certificate generation to EJBCA, several role and request fields that exist for compatibility with the built-in Vault PKI engine are **accepted and stored but not enforced by this engine**. The contents and validity of the issued certificate are instead governed by the configured EJBCA **certificate profile** and **end entity profile**. To enforce these constraints, configure them in EJBCA rather than relying on the Vault-side fields below:
+
+- **Validity / TTL** — `ttl`, `max_ttl`, `not_after`, and `not_before_duration` are not sent to EJBCA; certificate validity is determined by the EJBCA certificate profile. (When `generate_lease=true`, the issued certificate's `NotAfter` is used as the Vault lease TTL.)
+- **Key usage and extensions** — `key_usage`, `ext_key_usage`, `ext_key_usage_oids`, `server_flag`, `client_flag`, `code_signing_flag`, `email_protection_flag`, `policy_identifiers`, `basic_constraints_valid_for_non_ca`, and `max_path_length` are governed by the EJBCA certificate profile.
+- **Common name validation** — `cn_validations` is not applied. The common name is still checked against the engine's `allowed_domains` / `allow_*` settings, and then by EJBCA.
+- **Subject serial number** — the request `serial_number` subject field and the role's `allowed_serial_numbers` are not applied to the issued certificate.
+- **User IDs** — the request `user_ids` field and the role's `allowed_user_ids` are not applied to the issued certificate.
+
+> These fields remain in the role schema for drop-in compatibility with the built-in Vault PKI engine. Configure the equivalent restrictions in your EJBCA certificate and end entity profiles to enforce them.
+
 ### Vault Lease
 
 The EJBCA Vault PKI Engine can create [Vault Leases](https://developer.hashicorp.com/vault/docs/concepts/lease) for issued certificates if the role has `generate_lease=true`. If this option is set, the lease and certificate that it represents can be revoked with `vault revoke <lease_id>`. When the lease is revoked, the engine revokes the certificate in EJBCA and updates the backend accordingly for the regular paths.
@@ -238,7 +251,7 @@ vault write ejbca/revoke-with-key \
     private_key="-----BEGIN EC PRIVATE KEY----- MHcCAQEEII1YXWvr+8i5o8QQ5I3mF/T55AGzQ8VrC2VPHa+m5MvooAoGCCqGSM49 AwEHoUQDQgAEL6+GnD6BtY3mEY2qLfGJVPP4Cx23WeGYBbvxsgz+Kh85S7Z92llx zZUn7uSYC0bvNhHJ1I4SpZNKDWKbXWMgQQ== -----END EC PRIVATE KEY-----"
 ```
 
-> **Note:** The EJBCA PKI Secrets Engine cannot revoke certificates that were not issued by the EJBCA PKI Secrets Engine. That is, the certificate must exist in the Secrets Engine's backend.
+> **Note:** When revoking by `serial_number`, the certificate must exist in the Secrets Engine's backend (i.e. it was issued by this engine). When revoking by supplying the full `certificate`, the issuer and serial number are read from the certificate itself and the revocation is carried out by the configured EJBCA service account. In that case the engine does **not** require the certificate to have been issued through this engine, and the set of certificates that can be revoked is bounded by the EJBCA service account's permissions rather than by this mount.
 
 ### Read/List Paths
 The following paths can be used to fetch CA certificates. The paths that specify a `Content-Type` cannot be consumed using the `vault` command, and must be consumed using the Vault HTTP API. Any path that uses `ca` as its root will report the default issuer/CA configured in the Config path.

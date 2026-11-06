@@ -46,10 +46,11 @@ func TestRole(t *testing.T) {
 	assert.NoError(t, err)
 
 	maxTTL, _ := time.ParseDuration("1h")
+	ttlDuration, _ := time.ParseDuration("15m")
 	notBeforeDuration, _ := time.ParseDuration("15m")
 	var testRole = map[string]interface{}{
 		"max_ttl":                            int(maxTTL.Seconds()),
-		"ttl":                                int(notBeforeDuration.Seconds()),
+		"ttl":                                int(ttlDuration.Seconds()),
 		"allow_localhost":                    true,
 		"allowed_domains":                    []string{"example.com", "example.org"},
 		"allow_bare_domains":                 true,
@@ -180,4 +181,17 @@ func testRoleDelete(_ *testing.T, b logical.Backend, s logical.Storage) error {
 		return resp.Error()
 	}
 	return nil
+}
+
+// TestRoleToResponseDataIncludesEndEntityName is a unit test (no live EJBCA
+// required) ensuring the role read response surfaces the configured
+// end_entity_name, which was previously omitted.
+func TestRoleToResponseDataIncludesEndEntityName(t *testing.T) {
+	r := &roleEntry{EndEntityName: "cn"}
+
+	data := r.ToResponseData()
+
+	got, ok := data["end_entity_name"]
+	assert.True(t, ok, "end_entity_name should be present in the role read response")
+	assert.Equal(t, "cn", got)
 }

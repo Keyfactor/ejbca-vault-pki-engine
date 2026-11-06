@@ -479,8 +479,8 @@ func pathRole(b *ejbcaBackend) []*framework.Path {
 							Description: "OK",
 							Fields: map[string]*framework.FieldSchema{
 								"keys": {
-									Type:        framework.TypeMap,
-									Description: `List of keys`,
+									Type:        framework.TypeStringSlice,
+									Description: `List of role names`,
 									Required:    false,
 								},
 							},
@@ -501,11 +501,6 @@ func pathRole(b *ejbcaBackend) []*framework.Path {
 			},
 
 			Fields: map[string]*framework.FieldSchema{
-				"backend": {
-					Type:        framework.TypeString,
-					Description: "Backend Type",
-				},
-
 				"name": {
 					Type:        framework.TypeString,
 					Description: "Name of the role",
@@ -1069,7 +1064,12 @@ func (b *ejbcaBackend) pathRoleCreate(ctx context.Context, req *logical.Request,
 	case len(allowedOtherSANs) == 0:
 	case len(allowedOtherSANs) == 1 && allowedOtherSANs[0] == "*":
 	default:
-		// TODO parse and validate the SANs
+		// Validate that each allowed other SAN is well-formed
+		// ("<oid>;<type>:<value>", UTF-8 only) so malformed role config is
+		// rejected at role-create time rather than at issuance.
+		if _, err := parseOtherSANs(allowedOtherSANs); err != nil {
+			return logical.ErrorResponse(fmt.Sprintf("invalid allowed_other_sans: %s", err)), nil
+		}
 	}
 	entry.AllowedOtherSANs = allowedOtherSANs
 
@@ -1132,6 +1132,12 @@ func (b *ejbcaBackend) pathRoleCreate(ctx context.Context, req *logical.Request,
 func (b *ejbcaBackend) pathRoleDelete(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	b.Logger().Debug("Executing pathRoleDelete")
 
+	if b.isRunningOnPerformanceStandby() {
+		// Storage writes (including deletes) must happen on the active node;
+		// forward the request rather than failing with a raw storage error.
+		return nil, logical.ErrReadOnly
+	}
+
 	err := req.Storage.Delete(ctx, "role/"+data.Get("name").(string))
 	if err != nil {
 		return nil, err
@@ -1188,6 +1194,7 @@ func (r *roleEntry) ToResponseData() map[string]interface{} {
 		"issuer_ref":                         r.Issuer,
 		"end_entity_profile_name":            r.EndEntityProfileName,
 		"certificate_profile_name":           r.CertificateProfileName,
+		"end_entity_name":                    r.EndEntityName,
 		"account_binding_id":                 r.AccountBindingID,
 	}
 	if r.MaxPathLength != nil {
