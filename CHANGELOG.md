@@ -1,3 +1,7 @@
+# Unreleased
+## Fixes
+* Removed the unauthenticated `issuers/` path. No list route is registered for it, so advertising it did not expose an issuers endpoint.
+
 # v1.5.1
 ## Fixes
 * Patched bug that allowed the `allowed_uri_sans` role parameter to be bypassed when issuing/signing certificates with URI SANs.
