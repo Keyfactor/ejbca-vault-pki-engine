@@ -17,6 +17,7 @@ limitations under the License.
 package ejbca
 
 import (
+	"strings"
 	"sync"
 	"testing"
 
@@ -57,4 +58,26 @@ func TestGetClientConcurrentCachedAccess(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+// TestUnauthenticatedIssuersPathHasRoute fails while issuers/ is advertised as
+// an unauthenticated path but no list route is registered for it.
+func TestUnauthenticatedIssuersPathHasRoute(t *testing.T) {
+	b := backend()
+	declared := false
+	for _, p := range b.PathsSpecial.Unauthenticated {
+		if strings.Trim(p, "/") == "issuers" {
+			declared = true
+			break
+		}
+	}
+	if !declared {
+		return
+	}
+	for _, p := range b.Paths {
+		if strings.HasPrefix(p.Pattern, "issuers") {
+			return
+		}
+	}
+	t.Fatal("unauthenticated path issuers/ has no registered route")
 }

@@ -66,7 +66,6 @@ func backend() *ejbcaBackend {
 				"issuer/+/pem",
 				"issuer/+/der",
 				"issuer/+/json",
-				"issuers/", // LIST operations append a '/' to the requested path
 			},
 
 			LocalStorage: []string{
